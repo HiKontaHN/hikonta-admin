@@ -1,0 +1,117 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Paleta "One UI" — misma familia visual que hikonta-partners y el
+   estilo de yelifin-sistema, adaptada al look shadcn "new-york" que usan
+   las pantallas migradas (Dialog/Select/Table/Switch). */
+
+:root {
+  --background: #F1F3F6;
+  --foreground: #17181C;
+  --card: #FFFFFF;
+  --card-foreground: #17181C;
+  --popover: #FFFFFF;
+  --popover-foreground: #17181C;
+  --primary: #1455F6;
+  --primary-foreground: #FFFFFF;
+  --secondary: #EDEFF3;
+  --secondary-foreground: #17181C;
+  --muted: #EDEFF3;
+  --muted-foreground: #6C7280;
+  --accent: #E9F0FF;
+  --accent-foreground: #1455F6;
+  --destructive: #E03B3B;
+  --destructive-foreground: #FFFFFF;
+  --border: #E7E9EE;
+  --input: #E7E9EE;
+  --ring: #1455F6;
+  --chart-1: #1455F6;
+  --chart-2: #1FB35D;
+  --chart-3: #F5A623;
+  --chart-4: #7C5CFC;
+  --chart-5: #E03B7A;
+  --radius: 0.625rem;
+  --success: #1FB35D;
+  --success-foreground: #FFFFFF;
+  --warning: #F5A623;
+  --warning-foreground: #17181C;
+}
+
+.dark {
+  --background: #000000;
+  --foreground: #F5F6F8;
+  --card: #17181C;
+  --card-foreground: #F5F6F8;
+  --popover: #1D1E23;
+  --popover-foreground: #F5F6F8;
+  --primary: #4C7EFF;
+  --primary-foreground: #05060A;
+  --secondary: #201F26;
+  --secondary-foreground: #F5F6F8;
+  --muted: #201F26;
+  --muted-foreground: #96979F;
+  --accent: #182449;
+  --accent-foreground: #8FB1FF;
+  --destructive: #FF5C5C;
+  --destructive-foreground: #05060A;
+  --border: #232329;
+  --input: #232329;
+  --ring: #4C7EFF;
+  --chart-1: #4C7EFF;
+  --chart-2: #34D07A;
+  --chart-3: #FFC24B;
+  --chart-4: #A78BFF;
+  --chart-5: #FF6FA8;
+  --success: #34D07A;
+  --success-foreground: #05060A;
+  --warning: #FFC24B;
+  --warning-foreground: #05060A;
+}
+
+@theme inline {
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    letter-spacing: -0.01em;
+  }
+}
