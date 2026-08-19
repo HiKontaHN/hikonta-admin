@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 import { sql } from "@/lib/db";
 import { verifyAdmin, createErrorResponse, isAuthSuccess } from "@/lib/auth";
 import { applySubscriptionPayment } from "@/lib/billing";
+import { rateLimit, getClientIP } from "@/lib/rate-limit";
 
 // ── GET /api/admin/payments — historial, paginado ────────────────────────
 export async function GET(request: NextRequest) {
@@ -69,6 +70,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await verifyAdmin(request);
   if (!isAuthSuccess(auth)) return createErrorResponse(auth.error, auth.status);
+
+  // Extiende suscripciones reales — un límite propio evita que un loop
+  // accidental (o un script mal apuntado) dispare pagos en cadena.
+  const { allowed, retryAfterSec } = rateLimit(`register-payment:${getClientIP(request)}`, 30, 15 * 60 * 1000);
+  if (!allowed) {
+    return Response.json(
+      { error: "Demasiados pagos registrados seguidos. Esperá unos minutos." },
+      { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+    );
+  }
 
   try {
     const { org_id, amount_usd, months_purchased, provider, currency, receipt_url } = await request.json();

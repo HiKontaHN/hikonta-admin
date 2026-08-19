@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { sql } from "@/lib/db";
 import { verifyAdmin, createErrorResponse, isAuthSuccess, ensureOrgExists } from "@/lib/auth";
 import { adminAuth } from "@/lib/firebase-admin";
+import { rateLimit, getClientIP } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
   const auth = await verifyAdmin(request);
@@ -118,6 +119,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await verifyAdmin(request);
   if (!isAuthSuccess(auth)) return createErrorResponse(auth.error, auth.status);
+
+  const { allowed, retryAfterSec } = rateLimit(`create-user:${getClientIP(request)}`, 20, 15 * 60 * 1000);
+  if (!allowed) {
+    return Response.json(
+      { error: "Demasiadas cuentas creadas seguidas. Esperá unos minutos." },
+      { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+    );
+  }
 
   try {
     const {

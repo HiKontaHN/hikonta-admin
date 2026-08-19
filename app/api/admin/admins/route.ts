@@ -6,6 +6,7 @@
 import { NextRequest } from "next/server";
 import { sql } from "@/lib/db";
 import { verifyAdmin, createErrorResponse, isAuthSuccess } from "@/lib/auth";
+import { rateLimit, getClientIP } from "@/lib/rate-limit";
 
 // ── GET /api/admin/admins — listar administradores ──────────────────────
 export async function GET(request: NextRequest) {
@@ -40,6 +41,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await verifyAdmin(request);
   if (!isAuthSuccess(auth)) return createErrorResponse(auth.error, auth.status);
+
+  // Elevar a alguien a admin es escalación de privilegios sobre el panel de
+  // mayor riesgo de la plataforma — límite más estricto que el global.
+  const { allowed, retryAfterSec } = rateLimit(`add-admin:${getClientIP(request)}`, 5, 15 * 60 * 1000);
+  if (!allowed) {
+    return Response.json(
+      { error: "Demasiados intentos. Esperá unos minutos." },
+      { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+    );
+  }
 
   try {
     const { email } = await request.json();

@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { sql } from "@/lib/db";
 import { verifyAdmin, createErrorResponse, isAuthSuccess } from "@/lib/auth";
 import { adminAuth } from "@/lib/firebase-admin";
+import { rateLimit, getClientIP } from "@/lib/rate-limit";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -190,6 +191,19 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     if (is_active === false && userId === auth.data.userId) {
       return createErrorResponse("No podés desactivar tu propia cuenta", 400);
+    }
+
+    // Límite extra sobre el global de proxy.ts — esta acción resetea la
+    // contraseña de CUALQUIER usuario de la plataforma, es el caso más
+    // sensible de todo el panel.
+    if (new_password) {
+      const { allowed, retryAfterSec } = rateLimit(`reset-password:${getClientIP(request)}`, 10, 15 * 60 * 1000);
+      if (!allowed) {
+        return Response.json(
+          { error: "Demasiados reseteos de contraseña. Esperá unos minutos." },
+          { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+        );
+      }
     }
 
     // Obtener firebase_uid y org_id del usuario — por membresía real, no

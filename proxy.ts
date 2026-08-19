@@ -8,6 +8,7 @@
 // la plataforma.
 
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit, getClientIP } from "@/lib/rate-limit";
 
 const PUBLIC_PATHS = ["/login"];
 
@@ -94,9 +95,30 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // ── Rate limit global para toda la API ─────────────────────────────
+  // Mismo patrón que proxy.ts en yelifin-sistema: 300 solicitudes por
+  // minuto por IP, antes de que la request llegue a ninguna route
+  // (que hace su propia verifyAdmin() aparte, esto no la reemplaza).
+  // Endpoints puntuales especialmente sensibles (resetear contraseña,
+  // elevar un usuario a admin, registrar un pago) tienen además su propio
+  // límite más estricto dentro del route handler — ver lib/rate-limit.ts.
+  if (pathname.startsWith("/api")) {
+    const { allowed, retryAfterSec } = rateLimit(
+      `api:${getClientIP(request)}`,
+      300,
+      60 * 1000,
+    );
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Demasiadas solicitudes. Intentá de nuevo en unos segundos." },
+        { status: 429, headers: { "Retry-After": String(retryAfterSec) } },
+      );
+    }
+    return NextResponse.next();
+  }
+
   if (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/api") || // las rutas API hacen su propia verifyAdmin()
     pathname.includes(".")
   ) {
     return NextResponse.next();
