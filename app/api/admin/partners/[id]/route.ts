@@ -29,13 +29,23 @@ export async function GET(request: NextRequest, { params }: Params) {
     // guardado en el vínculo. Si la org sigue pagando por su cuenta
     // después (pagos con paid_by_partner_id = NULL), esos no suman acá —
     // cada pago se atribuye por separado, nunca se hereda.
+    //
+    // currently_sponsored — el caso que motivó esto: un partner compra 3
+    // meses para 20 orgs; a los 3 meses, si la org sigue pagando por su
+    // cuenta, ese pago nuevo no lleva paid_by_partner_id, así que
+    // sponsored_until (que solo mira pagos DE ESTE partner) se queda
+    // clavado en el pasado — currently_sponsored pasa a FALSE aunque la
+    // suscripción de la org siga activa (ahora la paga ella). Es lo que
+    // distingue "el partner cubrió esto alguna vez" de "el partner la está
+    // cubriendo ahora mismo".
     const organizations = await sql`
       SELECT
         po.id AS link_id, po.org_id, po.share_financials, po.linked_at,
         o.name AS org_name, o.currency,
         ou.email AS owner_email,
         COALESCE(sp.months_sponsored, 0)::int AS months_sponsored,
-        sp.sponsored_until
+        sp.sponsored_until,
+        (sp.sponsored_until IS NOT NULL AND sp.sponsored_until >= NOW()) AS currently_sponsored
       FROM partner_organizations po
       JOIN organizations o ON o.id = po.org_id
       JOIN users ou         ON ou.id = o.owner_user_id
@@ -48,7 +58,9 @@ export async function GET(request: NextRequest, { params }: Params) {
       ORDER BY po.linked_at DESC
     `;
 
-    return Response.json({ data: partner, organizations });
+    const activeSponsorships = organizations.filter((o: any) => o.currently_sponsored).length;
+
+    return Response.json({ data: partner, organizations, activeSponsorships });
   } catch (error) {
     console.error("GET /api/admin/partners/[id]:", error);
     return createErrorResponse("Error al obtener partner", 500);

@@ -626,6 +626,12 @@ export type AdminPartnerOrgLink = {
   // (aunque la org sí esté vinculada para monitoreo).
   months_sponsored: number;
   sponsored_until: string | null;
+  // true si sponsored_until sigue en el futuro — o sea, el período de
+  // suscripción vigente de la org AHORA MISMO lo pagó este partner. Si la
+  // org ya renovó por su cuenta después de que el patrocinio venció, esto
+  // pasa a false aunque months_sponsored/sponsored_until sigan mostrando
+  // el historial de lo que el partner sí pagó en su momento.
+  currently_sponsored: boolean;
 };
 
 export function useAdminPartners() {
@@ -655,6 +661,7 @@ export function useAdminPartner(id: number | null) {
   return {
     partner: (data?.data ?? null) as (AdminPartner & { user_id: number | null; updated_at: string }) | null,
     organizations: (data?.organizations ?? []) as AdminPartnerOrgLink[],
+    activeSponsorships: (data?.activeSponsorships ?? 0) as number,
     isLoading,
     error: (error as any)?.message ?? null,
     mutate,
@@ -710,6 +717,44 @@ export function useAdminDeletePartner() {
     }
   };
   return { deletePartner, isDeleting };
+}
+
+export type SponsorBatchInput = {
+  org_ids: number[];
+  amount_usd: number;
+  months_purchased: number;
+  provider?: "MANUAL" | "STRIPE" | "PAYPAL";
+  currency?: string;
+  receipt_url?: string;
+};
+
+export type SponsorBatchResultRow = {
+  org_id: number;
+  org_name: string | null;
+  success: boolean;
+  error?: string;
+};
+
+// Patrocinar varias organizaciones de una — el caso de "el partner compra
+// N suscripciones para N orgs". Cada una queda como un pago independiente
+// (ver POST /api/admin/partners/[id]/sponsor); esto solo evita repetir el
+// diálogo de registrar pago N veces.
+export function useAdminBulkSponsor(partnerId: number | null) {
+  const authFetch = useAuthFetch();
+  const [isSponsoring, setIsSponsoring] = useState(false);
+  const bulkSponsor = async (input: SponsorBatchInput) => {
+    if (!partnerId) throw new Error("ID requerido");
+    setIsSponsoring(true);
+    try {
+      return await authFetch(`/api/admin/partners/${partnerId}/sponsor`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    } finally {
+      setIsSponsoring(false);
+    }
+  };
+  return { bulkSponsor, isSponsoring };
 }
 
 export function useAdminLinkPartnerOrg(partnerId: number | null) {

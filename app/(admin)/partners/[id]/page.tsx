@@ -6,9 +6,10 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   useAdminPartner, useAdminUpdatePartner, useAdminLinkPartnerOrg,
-  useAdminUpdatePartnerOrgLink, useAdminUnlinkPartnerOrg, AdminOrgSearchResult,
+  useAdminUpdatePartnerOrgLink, useAdminUnlinkPartnerOrg, useAdminBulkSponsor,
+  AdminOrgSearchResult, SponsorBatchResultRow,
 } from "@/hooks/swr/use-admin";
-import { OrgPicker } from "@/components/shared/org-picker";
+import { OrgPicker, MultiOrgPicker } from "@/components/shared/org-picker";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -26,7 +30,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Plus, Loader2, Building2, Link2Off } from "lucide-react";
+import {
+  ArrowLeft, Plus, Loader2, Building2, Link2Off, Handshake,
+  CheckCircle2, XCircle, CircleDashed,
+} from "lucide-react";
 
 // ── Link org dialog ────────────────────────────────────────────────────
 
@@ -89,6 +96,131 @@ function LinkOrgDialog({
   );
 }
 
+// ── Sponsor batch dialog ───────────────────────────────────────────────
+// "El partner compra N suscripciones de M meses para N orgs" — el caso
+// que motivó esto. Cada org vincula (si hace falta) y queda con un pago
+// independiente, así que no hay ningún "crédito" que arrastrar: si en 3
+// meses una de estas orgs paga por su cuenta, no se le sigue contando a
+// este partner (ver GET /api/admin/partners/[id], currently_sponsored).
+
+function SponsorBatchDialog({
+  partnerId, open, onClose, onDone,
+}: { partnerId: number; open: boolean; onClose: () => void; onDone: () => void }) {
+  const { bulkSponsor, isSponsoring } = useAdminBulkSponsor(partnerId);
+  const [orgs, setOrgs] = useState<AdminOrgSearchResult[]>([]);
+  const [amount, setAmount] = useState("0");
+  const [months, setMonths] = useState("3");
+  const [provider, setProvider] = useState("MANUAL");
+  const [results, setResults] = useState<SponsorBatchResultRow[] | null>(null);
+
+  const reset = () => { setOrgs([]); setAmount("0"); setMonths("3"); setProvider("MANUAL"); setResults(null); };
+  const handleClose = () => { reset(); onClose(); };
+
+  const handleSubmit = async () => {
+    if (orgs.length === 0) { toast.error("Agregá al menos una organización"); return; }
+    const amountNum = Number(amount);
+    const monthsNum = Number(months);
+    if (!(amountNum >= 0)) { toast.error("El monto por organización debe ser mayor o igual a 0"); return; }
+    if (!(monthsNum >= 1)) { toast.error("Los meses deben ser al menos 1"); return; }
+
+    try {
+      const res = await bulkSponsor({
+        org_ids: orgs.map((o) => o.id),
+        amount_usd: amountNum,
+        months_purchased: monthsNum,
+        provider: provider as "MANUAL" | "STRIPE" | "PAYPAL",
+      });
+      setResults(res.data);
+      if (res.failed === 0) {
+        toast.success(`${res.succeeded} organización${res.succeeded !== 1 ? "es" : ""} patrocinada${res.succeeded !== 1 ? "s" : ""}`);
+      } else {
+        toast.warning(`${res.succeeded} ok, ${res.failed} con error — revisá el detalle`);
+      }
+      onDone();
+    } catch (err: any) {
+      toast.error(err.message || "Error al registrar el lote");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Patrocinar organizaciones</DialogTitle>
+        </DialogHeader>
+
+        {results ? (
+          <div className="space-y-3 py-1">
+            <div className="max-h-64 space-y-1 overflow-y-auto">
+              {results.map((r) => (
+                <div key={r.org_id} className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-sm">
+                  <span className="truncate">{r.org_name ?? `Org #${r.org_id}`}</span>
+                  {r.success
+                    ? <CheckCircle2 className="size-4 shrink-0 text-success" />
+                    : <span className="flex shrink-0 items-center gap-1 text-xs text-destructive"><XCircle className="size-3.5" /> {r.error}</span>}
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button onClick={handleClose}>Cerrar</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-4 py-1">
+              <div className="space-y-1.5">
+                <Label>Organizaciones</Label>
+                <MultiOrgPicker selected={orgs} onChange={setOrgs} />
+                <p className="text-xs text-muted-foreground">
+                  {orgs.length} organización{orgs.length !== 1 ? "es" : ""} seleccionada{orgs.length !== 1 ? "s" : ""}.
+                  Las que todavía no estén vinculadas a este partner se vinculan automáticamente.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Monto por org. (USD)</Label>
+                  <Input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isSponsoring} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Meses cubiertos</Label>
+                  <Input type="number" min="1" step="1" value={months} onChange={(e) => setMonths(e.target.value)} disabled={isSponsoring} />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Método</Label>
+                <Select value={provider} onValueChange={setProvider} disabled={isSponsoring}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="MANUAL">Manual (efectivo/transferencia)</SelectItem>
+                    <SelectItem value="STRIPE">Stripe</SelectItem>
+                    <SelectItem value="PAYPAL">PayPal</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Cada organización queda con un pago independiente a su nombre — no hay ningún saldo
+                ni crédito compartido. Cuando se acabe este período, si la organización paga por su
+                cuenta, ese pago nuevo no se le va a contar a este partner.
+              </p>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={handleClose} disabled={isSponsoring}>Cancelar</Button>
+              <Button onClick={handleSubmit} disabled={isSponsoring || orgs.length === 0} className="gap-2">
+                {isSponsoring ? <Loader2 className="size-3.5 animate-spin" /> : <Handshake className="size-3.5" />}
+                Patrocinar {orgs.length > 0 && `(${orgs.length})`}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────
 
 export default function AdminPartnerDetailPage() {
@@ -96,12 +228,13 @@ export default function AdminPartnerDetailPage() {
   const params = useParams();
   const partnerId = Number(params.id);
 
-  const { partner, organizations, isLoading, mutate } = useAdminPartner(partnerId || null);
+  const { partner, organizations, activeSponsorships, isLoading, mutate } = useAdminPartner(partnerId || null);
   const { updatePartner, isSaving } = useAdminUpdatePartner();
   const { updateLink } = useAdminUpdatePartnerOrgLink(partnerId || null);
   const { unlinkOrg, isRemoving } = useAdminUnlinkPartnerOrg(partnerId || null);
 
   const [showLink, setShowLink] = useState(false);
+  const [showSponsor, setShowSponsor] = useState(false);
   const [unlinking, setUnlinking] = useState<{ org_id: number; org_name: string } | null>(null);
 
   const [form, setForm] = useState<{ name: string; contact_name: string; email: string; phone: string } | null>(null);
@@ -173,7 +306,13 @@ export default function AdminPartnerDetailPage() {
               {partner.is_active ? "Activo" : "Inactivo"}
             </Badge>
           </div>
-          <p className="text-sm text-muted-foreground">{organizations.length} organización{organizations.length !== 1 ? "es" : ""} vinculada{organizations.length !== 1 ? "s" : ""}</p>
+          <p className="text-sm text-muted-foreground">
+            {organizations.length} organización{organizations.length !== 1 ? "es" : ""} vinculada{organizations.length !== 1 ? "s" : ""}
+            {" · "}
+            <span className={activeSponsorships > 0 ? "font-medium text-success" : ""}>
+              {activeSponsorships} con patrocinio activo ahora
+            </span>
+          </p>
         </div>
       </div>
 
@@ -213,11 +352,16 @@ export default function AdminPartnerDetailPage() {
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-semibold">Organizaciones vinculadas</p>
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowLink(true)}>
-          <Plus className="size-3.5" /> Vincular organización
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowLink(true)}>
+            <Plus className="size-3.5" /> Vincular organización
+          </Button>
+          <Button size="sm" className="gap-1.5" onClick={() => setShowSponsor(true)}>
+            <Handshake className="size-3.5" /> Patrocinar organizaciones
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border">
@@ -249,15 +393,30 @@ export default function AdminPartnerDetailPage() {
                   <TableCell className="text-xs">
                     {link.months_sponsored > 0 ? (
                       <>
-                        <p className="font-medium">{link.months_sponsored} mes{link.months_sponsored !== 1 ? "es" : ""} pagados</p>
-                        {link.sponsored_until && (
-                          <p className="text-muted-foreground" suppressHydrationWarning>
-                            cubierto hasta {new Date(link.sponsored_until).toLocaleDateString("es-HN", { day: "numeric", month: "short", year: "numeric" })}
-                          </p>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          {link.currently_sponsored ? (
+                            <Badge className="border-green-200 bg-green-100 py-0 text-[10px] text-green-700">Activo</Badge>
+                          ) : (
+                            <Badge variant="outline" className="py-0 text-[10px] text-muted-foreground">
+                              Vencido — paga por su cuenta
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 text-muted-foreground">
+                          {link.months_sponsored} mes{link.months_sponsored !== 1 ? "es" : ""} pagados por el partner
+                          {link.sponsored_until && (
+                            <> · {link.currently_sponsored ? "cubierto hasta" : "cubrió hasta"}{" "}
+                              <span suppressHydrationWarning>
+                                {new Date(link.sponsored_until).toLocaleDateString("es-HN", { day: "numeric", month: "short", year: "numeric" })}
+                              </span>
+                            </>
+                          )}
+                        </p>
                       </>
                     ) : (
-                      <span className="text-muted-foreground">Sin pagos patrocinados</span>
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <CircleDashed className="size-3" /> Sin pagos patrocinados
+                      </span>
                     )}
                   </TableCell>
                   <TableCell>
@@ -283,6 +442,8 @@ export default function AdminPartnerDetailPage() {
       </div>
 
       <LinkOrgDialog partnerId={partnerId} open={showLink} onClose={() => setShowLink(false)} onLinked={() => mutate()} />
+
+      <SponsorBatchDialog partnerId={partnerId} open={showSponsor} onClose={() => setShowSponsor(false)} onDone={() => mutate()} />
 
       <AlertDialog open={!!unlinking} onOpenChange={(v) => !v && setUnlinking(null)}>
         <AlertDialogContent>
