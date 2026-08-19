@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import {
   useAdminPartner, useAdminUpdatePartner, useAdminLinkPartnerOrg,
   useAdminUpdatePartnerOrgLink, useAdminUnlinkPartnerOrg, useAdminBulkSponsor, useAdminPlans,
-  AdminOrgSearchResult, SponsorBatchResultRow,
+  useAdminCreditBatches, useAdminCreateCreditBatch,
+  AdminOrgSearchResult, SponsorBatchResultRow, AdminCreditBatch,
 } from "@/hooks/swr/use-admin";
 import { OrgPicker, MultiOrgPicker } from "@/components/shared/org-picker";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,7 +33,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   ArrowLeft, Plus, Loader2, Building2, Link2Off, Handshake,
-  CheckCircle2, XCircle, CircleDashed,
+  CheckCircle2, XCircle, CircleDashed, Ticket, Wallet,
 } from "lucide-react";
 
 // ── Link org dialog ────────────────────────────────────────────────────
@@ -267,6 +268,187 @@ function SponsorBatchDialog({
   );
 }
 
+// ── Credit batch dialog ─────────────────────────────────────────────
+// "El partner compra N suscripciones de M meses sin saber todavía a quién
+// van" — a diferencia de SponsorBatchDialog de arriba, acá NO se elige
+// ninguna organización. Se cobra el lote entero de una sola vez (precio
+// del plan × meses, con un precio final editable para aplicar descuento) y
+// quedan N créditos pendientes de asignar. Repartirlos a organizaciones
+// puntuales (por link o por email) es un paso futuro, todavía no
+// construido — ver documentation/feature-sponsorship-invites.md.
+
+function CreditBatchDialog({
+  partnerId, open, onClose, onCreated,
+}: { partnerId: number; open: boolean; onClose: () => void; onCreated: () => void }) {
+  const { createBatch, isCreating } = useAdminCreateCreditBatch(partnerId);
+  const { plans, isLoading: plansLoading } = useAdminPlans();
+  const paidPlans = plans.filter((p) => Number(p.price_usd) > 0);
+
+  const [planId, setPlanId] = useState("");
+  const [months, setMonths] = useState("3");
+  const [quantity, setQuantity] = useState("20");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [priceTouched, setPriceTouched] = useState(false);
+  const [provider, setProvider] = useState("MANUAL");
+  const [receiptUrl, setReceiptUrl] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const selectedPlan = paidPlans.find((p) => String(p.id) === planId) ?? null;
+  const monthsNum = Number(months) || 0;
+  const quantityNum = Number(quantity) || 0;
+  const listUnitPrice = selectedPlan ? Number(selectedPlan.price_usd) * monthsNum : 0;
+
+  // El precio se auto-completa con el de lista mientras el admin no lo haya
+  // tocado a mano — apenas lo edita, dejamos de pisárselo aunque cambien
+  // plan/meses.
+  const effectiveUnitPrice = priceTouched ? (Number(unitPrice) || 0) : listUnitPrice;
+  const discountPerCredit = Math.max(0, listUnitPrice - effectiveUnitPrice);
+  const discountPct = listUnitPrice > 0 ? (discountPerCredit / listUnitPrice) * 100 : 0;
+  const totalUsd = effectiveUnitPrice * quantityNum;
+
+  const reset = () => {
+    setPlanId(""); setMonths("3"); setQuantity("20"); setUnitPrice(""); setPriceTouched(false);
+    setProvider("MANUAL"); setReceiptUrl(""); setNotes("");
+  };
+  const handleClose = () => { reset(); onClose(); };
+
+  const handleSubmit = async () => {
+    if (!selectedPlan) { toast.error("Elegí un plan"); return; }
+    if (!(monthsNum >= 1)) { toast.error("Los meses deben ser al menos 1"); return; }
+    if (!(quantityNum >= 1)) { toast.error("La cantidad debe ser al menos 1"); return; }
+    if (!(effectiveUnitPrice >= 0)) { toast.error("El precio por suscripción no puede ser negativo"); return; }
+
+    try {
+      await createBatch({
+        plan_id: selectedPlan.id,
+        months: monthsNum,
+        quantity: quantityNum,
+        unit_price_usd: effectiveUnitPrice,
+        provider: provider as "MANUAL" | "STRIPE" | "PAYPAL",
+        receipt_url: receiptUrl.trim() || undefined,
+        notes: notes.trim() || undefined,
+      });
+      toast.success(`${quantityNum} crédito${quantityNum !== 1 ? "s" : ""} de ${selectedPlan.name} generado${quantityNum !== 1 ? "s" : ""}`);
+      onCreated();
+      handleClose();
+    } catch (err: any) {
+      toast.error(err.message || "Error al comprar el lote de créditos");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Comprar créditos de suscripción</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-5 py-1">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Plan</Label>
+              <Select value={planId} onValueChange={setPlanId} disabled={isCreating || plansLoading}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={plansLoading ? "Cargando…" : "Elegir plan"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {paidPlans.length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">No hay planes pagos configurados</div>
+                  ) : (
+                    paidPlans.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>{p.name} · ${Number(p.price_usd).toFixed(2)}/mes</SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Duración (meses)</Label>
+              <Input type="number" min="1" step="1" value={months} onChange={(e) => setMonths(e.target.value)} disabled={isCreating} className="w-full" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Cantidad de suscripciones</Label>
+              <Input type="number" min="1" step="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} disabled={isCreating} className="w-full" />
+              <p className="text-xs text-muted-foreground">Sin elegir organización todavía — quedan como créditos.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Método</Label>
+              <Select value={provider} onValueChange={setProvider} disabled={isCreating}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MANUAL">Manual</SelectItem>
+                  <SelectItem value="STRIPE">Stripe</SelectItem>
+                  <SelectItem value="PAYPAL">PayPal</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Precio por suscripción (con descuento si aplica)</Label>
+            <Input
+              type="number" min="0" step="0.01"
+              value={priceTouched ? unitPrice : (selectedPlan ? listUnitPrice.toFixed(2) : "")}
+              onChange={(e) => { setPriceTouched(true); setUnitPrice(e.target.value); }}
+              placeholder={selectedPlan ? listUnitPrice.toFixed(2) : "Elegí un plan primero"}
+              disabled={isCreating || !selectedPlan}
+              className="w-full"
+            />
+            {selectedPlan && (
+              <p className="text-xs text-muted-foreground">
+                Precio de lista: ${listUnitPrice.toFixed(2)} (${Number(selectedPlan.price_usd).toFixed(2)} × {monthsNum || 0} mes{monthsNum !== 1 ? "es" : ""})
+                {discountPerCredit > 0 && (
+                  <> · <span className="font-medium text-success">{discountPct.toFixed(0)}% de descuento</span> (−${discountPerCredit.toFixed(2)})</>
+                )}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Comprobante (URL, opcional)</Label>
+            <Input value={receiptUrl} onChange={(e) => setReceiptUrl(e.target.value)} disabled={isCreating} className="w-full" placeholder="https://…" />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Notas (opcional)</Label>
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} disabled={isCreating} className="w-full" placeholder="Ej. factura #123, transferencia BAC" />
+          </div>
+
+          {selectedPlan && quantityNum > 0 && (
+            <div className="rounded-lg border bg-muted/40 px-3.5 py-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">
+                  {quantityNum} suscripci{quantityNum !== 1 ? "ones" : "ón"} {selectedPlan.name} × {monthsNum || 0} mes{monthsNum !== 1 ? "es" : ""}
+                </span>
+              </div>
+              <div className="mt-2 flex items-center justify-between border-t pt-2">
+                <span className="font-medium">Total a cobrar ahora</span>
+                <span className="text-base font-semibold">${totalUsd.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Se cobra el lote completo ahora, una sola vez — los créditos ya quedan pagos. Asignar
+            cada crédito a una organización (link o email) todavía no está construido.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose} disabled={isCreating}>Cancelar</Button>
+          <Button onClick={handleSubmit} disabled={isCreating || !selectedPlan || quantityNum < 1} className="gap-2">
+            {isCreating ? <Loader2 className="size-3.5 animate-spin" /> : <Wallet className="size-3.5" />}
+            Comprar {quantityNum > 0 && `(${quantityNum})`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────
 
 export default function AdminPartnerDetailPage() {
@@ -278,9 +460,11 @@ export default function AdminPartnerDetailPage() {
   const { updatePartner, isSaving } = useAdminUpdatePartner();
   const { updateLink } = useAdminUpdatePartnerOrgLink(partnerId || null);
   const { unlinkOrg, isRemoving } = useAdminUnlinkPartnerOrg(partnerId || null);
+  const { creditBatches, mutate: mutateCreditBatches } = useAdminCreditBatches(partnerId || null);
 
   const [showLink, setShowLink] = useState(false);
   const [showSponsor, setShowSponsor] = useState(false);
+  const [showCreditBatch, setShowCreditBatch] = useState(false);
   const [unlinking, setUnlinking] = useState<{ org_id: number; org_name: string } | null>(null);
 
   const [form, setForm] = useState<{ name: string; contact_name: string; email: string; phone: string } | null>(null);
@@ -399,6 +583,71 @@ export default function AdminPartnerDetailPage() {
       </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">Créditos de suscripción</p>
+          <p className="text-xs text-muted-foreground">
+            Lotes comprados por adelantado, sin organización asignada todavía.
+          </p>
+        </div>
+        <Button size="sm" className="gap-1.5" onClick={() => setShowCreditBatch(true)}>
+          <Wallet className="size-3.5" /> Comprar créditos
+        </Button>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/30">
+              <TableHead>Plan</TableHead>
+              <TableHead>Duración</TableHead>
+              <TableHead>Cantidad</TableHead>
+              <TableHead>Precio pactado</TableHead>
+              <TableHead>Total cobrado</TableHead>
+              <TableHead>Créditos</TableHead>
+              <TableHead>Comprado</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {creditBatches.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
+                  <Ticket className="mx-auto mb-2 size-8 text-muted-foreground/30" />
+                  Sin lotes de créditos todavía
+                </TableCell>
+              </TableRow>
+            ) : (
+              creditBatches.map((b: AdminCreditBatch) => {
+                const listPrice = Number(b.list_unit_price_usd);
+                const unitPrice = Number(b.unit_price_usd);
+                const discountPct = listPrice > 0 ? ((listPrice - unitPrice) / listPrice) * 100 : 0;
+                return (
+                  <TableRow key={b.id}>
+                    <TableCell className="text-sm font-medium">{b.plan_name}</TableCell>
+                    <TableCell className="text-sm">{b.months} mes{b.months !== 1 ? "es" : ""}</TableCell>
+                    <TableCell className="text-sm">{b.quantity}</TableCell>
+                    <TableCell className="text-xs">
+                      <p className="font-medium text-foreground">${unitPrice.toFixed(2)} c/u</p>
+                      {discountPct > 0.01 && (
+                        <p className="text-success">{discountPct.toFixed(0)}% off de ${listPrice.toFixed(2)}</p>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm font-semibold">${Number(b.total_usd).toFixed(2)}</TableCell>
+                    <TableCell className="text-xs">
+                      <span className="text-muted-foreground">{b.pending_count} pendiente{b.pending_count !== 1 ? "s" : ""}</span>
+                      {b.claimed_count > 0 && <span className="ml-1.5 text-success">· {b.claimed_count} canjeado{b.claimed_count !== 1 ? "s" : ""}</span>}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground" suppressHydrationWarning>
+                      {new Date(b.created_at).toLocaleDateString("es-HN", { day: "numeric", month: "short", year: "numeric" })}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-semibold">Organizaciones vinculadas</p>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowLink(true)}>
@@ -490,6 +739,8 @@ export default function AdminPartnerDetailPage() {
       <LinkOrgDialog partnerId={partnerId} open={showLink} onClose={() => setShowLink(false)} onLinked={() => mutate()} />
 
       <SponsorBatchDialog partnerId={partnerId} open={showSponsor} onClose={() => setShowSponsor(false)} onDone={() => mutate()} />
+
+      <CreditBatchDialog partnerId={partnerId} open={showCreditBatch} onClose={() => setShowCreditBatch(false)} onCreated={() => mutateCreditBatches()} />
 
       <AlertDialog open={!!unlinking} onOpenChange={(v) => !v && setUnlinking(null)}>
         <AlertDialogContent>

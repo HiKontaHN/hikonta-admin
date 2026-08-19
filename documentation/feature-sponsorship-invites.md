@@ -1,7 +1,8 @@
-# Feature pendiente — Invitaciones de suscripción patrocinada
+# Feature — Invitaciones de suscripción patrocinada
 
-> **Estado:** Diseño en pausa a propósito — el usuario pidió guardar esto en un doc y continuar
-> después, no construirlo todavía.
+> **Estado:** **Fase 1 construida** (19 de agosto de 2026, sesión 2) — el lote de créditos
+> facturado por adelantado. La fase 2 (canje: link/email → organización real) sigue en pausa,
+> ver sección "Preguntas abiertas" más abajo — no cambiaron desde la sesión 1.
 > **Fecha:** 19 de agosto de 2026
 
 ---
@@ -33,6 +34,29 @@ público.
 | Pregunta | Respuesta |
 |---|---|
 | ¿Dónde se genera el lote de N plazas patrocinadas? | **Panel admin (`hikonta-admin`)** — el admin de HiKonta crea el lote para un partner (ver sección "Cómo encaja con lo que ya existe" abajo), no el propio partner desde su panel. |
+| ¿Cómo se factura el lote? (sesión 2) | **Se cobra completo al crearlo** — un solo cargo (precio del plan × meses × cantidad, con un precio final editable para aplicar descuento) en el momento de comprar el lote. Los créditos ya quedan pagos; canjear uno después NO genera un cobro nuevo. Distinto del "patrocinio en lote" que ya existía (sección 10 de `progress.md`), que sigue cobrando pago-por-pago por organización. |
+| ¿Alcance de la sesión 2? | Solo generar el lote de créditos (plan + meses + cantidad + precio/descuento) desde `hikonta-admin`, sin organización. **Sin link de canje ni email todavía** — eso es la fase 2, sigue pendiente (preguntas abiertas sin cambios). |
+
+## Fase 1 — construida (sesión 2, 19 de agosto de 2026)
+
+- **Schema:** `database/partners/05-credit-batches.sql` (en `yelifin-sistema`, **todavía no ejecutado
+  en Neon** — este entorno no tenía `DATABASE_URL` cargado, confirmar con el usuario antes de
+  correrlo). Crea:
+  - `partner_credit_batches` — la "factura": partner, plan, meses, cantidad, precio de lista
+    (snapshot de `subscription_plans.price_usd × months`), precio final pactado, total cobrado,
+    método de pago, comprobante, notas, quién lo creó.
+  - `partner_subscription_credits` — una fila por cada suscripción individual del lote (si
+    quantity=20, son 20 filas), todas `PENDING`. Ya tiene `token`/`status`/`claimed_org_id` para
+    la fase 2, aunque ningún endpoint los usa todavía — evita otra migración después.
+- **Backend (`hikonta-admin`):** `GET/POST /api/admin/partners/[id]/credit-batches`. El POST valida
+  plan pago, meses ≥ 1, cantidad 1–200, y que el precio final sea ≥ 0; si falla la inserción de los
+  créditos individuales, borra la fila de factura para no dejar un lote fantasma sin créditos.
+- **Frontend:** en el detalle de partner (`/partners/[id]`), sección nueva "Créditos de suscripción"
+  con tabla de lotes (plan, duración, cantidad, precio pactado + % descuento, total cobrado,
+  pendientes/canjeados, fecha) y diálogo "Comprar créditos" — precio se autocompleta con el de
+  lista y es editable (eso ES el mecanismo de descuento, sin campo de % aparte).
+- **Pendiente de esta fase:** correr `05-credit-batches.sql` contra Neon y probar el flujo end-to-end
+  con datos reales — no se pudo en esta sesión por falta de credenciales de base de datos.
 
 ## Preguntas abiertas (sin resolver)
 
@@ -68,54 +92,40 @@ Dos opciones, sin decidir:
 ## Cómo encaja con lo que ya existe
 
 - `lib/billing.ts` → `applySubscriptionPayment(orgId, months, opts)` — ya soporta `planId` y
-  `paidByPartnerId`. Este feature reutilizaría el mismo helper en el momento en que la plaza se
-  "canjea" (se crea o se vincula la org), no cuando se genera el lote.
-- `POST /api/admin/partners/[id]/sponsor` (`hikonta-admin`) — hoy exige `org_ids` de orgs ya
-  existentes. Este feature necesitaría una variante o un modo nuevo: generar plazas SIN `org_id`
-  todavía, cada una con su propio token.
-- `partner_organizations` — el vínculo se crearía recién cuando la plaza se canjea (registro nuevo
-  u org reclamada), no al generar el lote.
+  `paidByPartnerId`. La fase 2 reutilizaría el mismo helper en el momento en que el crédito se
+  "canjea" (se crea o se vincula la org) — aunque, a diferencia del boceto original, el cobro real
+  ya pasó al comprar el lote (fase 1), así que el canje probablemente NO debería crear otra fila en
+  `subscription_payments` con `amount_usd` — falta decidir cómo se refleja el canje sin duplicar el
+  cobro (¿un pago con `amount_usd = 0` y una referencia al crédito? ¿directamente actualizar
+  `org_subscriptions` sin pasar por `subscription_payments`?).
+- `POST /api/admin/partners/[id]/sponsor` (`hikonta-admin`) — sigue existiendo tal cual, para el
+  caso de orgs que YA existen (cobra pago-por-pago). No se toca.
+- `partner_organizations` — el vínculo se crearía recién cuando el crédito se canjea (registro nuevo
+  u org reclamada), no al generar el lote — igual que estaba pensado.
 
-## Boceto técnico (sin implementar — para cuando se retome)
+## Fase 2 — todavía sin construir: el canje
 
-Tabla nueva, borrador, mismo estilo que `org_invitations` en `multi-org-progress.md`:
+El schema de la fase 1 (`partner_subscription_credits`, ver arriba) ya tiene `token`, `status` y
+`claimed_org_id`/`claimed_at` reservados para esto — no hace falta otra migración para arrancar la
+fase 2, solo construir sobre lo que ya existe:
 
-```sql
-CREATE TABLE partner_sponsorship_slots (
-  id           BIGSERIAL PRIMARY KEY,
-  partner_id   BIGINT NOT NULL REFERENCES partners(id) ON DELETE CASCADE,
-  plan_id      BIGINT NOT NULL REFERENCES subscription_plans(id),
-  months       INT NOT NULL,
-  token        VARCHAR(255) UNIQUE NOT NULL,
-  email        VARCHAR(255),              -- opcional: si el partner ya sabe a quién es
-  status       VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- PENDING | CLAIMED | EXPIRED | REVOKED
-  claimed_by_user_id BIGINT REFERENCES users(id),
-  claimed_org_id     BIGINT REFERENCES organizations(id),
-  expires_at   TIMESTAMP,
-  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  claimed_at   TIMESTAMP
-);
-```
-
-Rutas nuevas (borrador, nombres sin confirmar):
-- `POST /api/admin/partners/[id]/sponsorship-slots` — crear el lote de N plazas (hikonta-admin,
-  ya decidido que va acá).
-- `GET /api/partner/sponsorship-slots` — que el partner vea sus plazas (usadas/pendientes) desde
-  `hikonta-partners`.
-- `GET /invite/[token]` (pública, sin auth) — landing para canjear una plaza — formato exacto
-  depende de la respuesta a la pregunta 1.
-- `POST /api/public/sponsorship-slots/[token]/claim` — pública, sin auth, con su propio rate limit
-  estricto (mismo criterio que `POST /api/partner/register`, que ya es pública y hoy limita a
-  10/15min/IP).
+- `GET /api/partner/credits` (`hikonta-partners`) — que el partner vea sus créditos
+  (pendientes/canjeados) del portafolio.
+- `GET /invite/[token]` (pública, sin auth) — landing para canjear un crédito — formato exacto
+  depende de la respuesta a la pregunta 1 de abajo.
+- `POST /api/public/credits/[token]/claim` — pública, sin auth, con su propio rate limit estricto
+  (mismo criterio que `POST /api/partner/register`, que ya es pública y hoy limita a 10/15min/IP).
+- UI en `hikonta-admin` y/o `hikonta-partners` para generar el link o mandar el email de un crédito
+  puntual del lote.
 
 ---
 
-## Siguiente paso cuando se retome
+## Siguiente paso cuando se retome (fase 2)
 
 1. Resolver las dos preguntas abiertas de arriba con el usuario.
 2. Confirmar si el envío de email (si se elige la opción (a) de la pregunta 2) se resuelve con
    Resend, SendGrid, u otro proveedor — y quién paga esa cuenta.
-3. Diseñar la tabla definitiva (la de arriba es un borrador) y dónde vive el script SQL — mismo
-   patrón que el resto: `database/partners/0X-....sql` en `yelifin-sistema`.
-4. Recién ahí implementar: tabla → rutas → UI en `hikonta-admin` (crear lote) → UI en
-   `hikonta-partners` (repartir plazas) → página pública de registro/reclamo.
+3. Decidir cómo se refleja el canje en `subscription_payments` sin duplicar el cobro (ver "Cómo
+   encaja con lo que ya existe" arriba) — es la pregunta técnica nueva que dejó la fase 1.
+4. Implementar: rutas de canje → UI en `hikonta-admin` (generar link/email de un crédito) → UI en
+   `hikonta-partners` (ver créditos del portafolio) → página pública de registro/reclamo.

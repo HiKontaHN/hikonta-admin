@@ -32,7 +32,7 @@ contraseña, edita cualquier suscripción, extiende suscripciones registrando pa
 | Planes (CRUD, límites, features) | ✅ Portado 1:1 desde `yelifin-sistema` |
 | Administradores (`admins`) | ✅ UI completa — agregar por email, activar/desactivar, eliminar |
 | Pagos (`subscription_payments`) | ✅ Nuevo — historial + registrar pago manual, extiende la suscripción real |
-| Partners (`partners`/`partner_organizations`) | ✅ Nuevo — CRUD + vincular orgs + patrocinio de pagos |
+| Partners (`partners`/`partner_organizations`) | ✅ Nuevo — CRUD + vincular orgs + patrocinio de pagos + lotes de créditos (schema sin correr en Neon todavía) |
 | Sidebar/navbar | ✅ Portada de `yelifin-sistema` (shadcn Sidebar), colapsable, pegada (no floating) |
 | Rate limiting | ✅ Global (300/min/IP en `/api/*`) + límites extra en endpoints sensibles |
 | Deploy (Vercel + dominio) | ⬜ No hecho |
@@ -94,6 +94,8 @@ app/api/admin/
   partners/[id]/               GET detalle + orgs vinculadas (con meses patrocinados) + PATCH + DELETE
   partners/[id]/organizations/ POST vincular una org (con share_financials)
   partners/[id]/organizations/[orgId]/  PATCH (share_financials) + DELETE (desvincular)
+  partners/[id]/sponsor/       POST patrocinar un lote de orgs YA existentes (pago por org)
+  partners/[id]/credit-batches/ GET listar lotes + POST comprar N créditos sin org (factura única)
 ```
 
 `lib/billing.ts` — `applySubscriptionPayment(orgId, months, opts)`: extiende
@@ -122,8 +124,9 @@ app/
     payments/                  historial + diálogo "registrar pago" (con buscador de org y
                                selector opcional de patrocinio por partner)
     partners/                  grid de partners (CRUD) + conteo de orgs vinculadas
-    partners/[id]/               editar datos + orgs vinculadas (con meses patrocinados) +
-                               vincular organización + toggle share_financials
+    partners/[id]/               editar datos + créditos de suscripción (comprar lote sin org) +
+                               orgs vinculadas (con meses patrocinados) + vincular organización +
+                               toggle share_financials
 ```
 
 Componentes `components/ui/*` copiados verbatim de `yelifin-sistema` (Button, Dialog, AlertDialog,
@@ -245,17 +248,32 @@ más un contador "X con patrocinio activo ahora" en el header — así queda vis
 cuáles de las orgs que el partner alguna vez cubrió siguen bajo su patrocinio hoy y cuáles ya
 "se graduaron" a pagar por su cuenta.
 
+**Créditos de suscripción (fase 1 de "invitaciones de suscripción patrocinada")** — distinto del
+patrocinio en lote de arriba: acá el partner compra N suscripciones de M meses **sin elegir
+organización todavía**, con un precio final editable por suscripción (ese campo ES el mecanismo de
+descuento, sin un % aparte) y se cobra el lote completo de una sola vez al crearlo — no
+pago-por-pago. `GET/POST /api/admin/partners/[id]/credit-batches` crea la "factura"
+(`partner_credit_batches`) más N filas individuales (`partner_subscription_credits`, todas
+`PENDING`) que van a servir para la fase 2 (repartir cada crédito por link o email a alguien que
+todavía no tiene cuenta) — esa fase sigue sin construir, ver
+`documentation/feature-sponsorship-invites.md`. Se ve en el detalle de partner, sección "Créditos
+de suscripción", arriba de "Organizaciones vinculadas". **`database/partners/05-credit-batches.sql`
+(en `yelifin-sistema`) todavía no se corrió contra Neon** — este entorno no tenía `DATABASE_URL`
+cargado en esta sesión.
+
 ---
 
 ## 11. Pendiente
 
-- [ ] **Invitaciones de suscripción patrocinada** — feature nueva pedida por el usuario, diseño en
-      pausa a propósito (guardado, no construido). El partner compra N suscripciones sin org
-      asignada todavía y las reparte por email o link único para que gente nueva se registre ya
-      con el plan puesto. Dos preguntas de diseño sin resolver + boceto técnico completo en
-      `documentation/feature-sponsorship-invites.md`. Ya decidido: el lote se genera desde
-      `hikonta-admin` (este repo); falta decidir qué hace el link/email y si hace falta un
-      proveedor de email saliente (no existe hoy en ningún repo de HiKonta).
+- [ ] **Invitaciones de suscripción patrocinada — fase 2 (canje)** — la fase 1 (comprar el lote de
+      créditos, facturado por adelantado) ya está construida, ver sección 10. Falta: repartir cada
+      crédito por link único o email a alguien que todavía no tiene cuenta, y que al canjearlo se
+      cree (o vincule) su organización con el plan puesto. Dos preguntas de diseño sin resolver +
+      boceto técnico en `documentation/feature-sponsorship-invites.md`. Requiere además decidir si
+      hace falta un proveedor de email saliente (no existe hoy en ningún repo de HiKonta).
+- [ ] **Correr `database/partners/05-credit-batches.sql` contra Neon** (en `yelifin-sistema`) — el
+      código de créditos de suscripción (sección 10) ya está escrito pero la tabla no existe
+      todavía en la base real; esta sesión no tenía `DATABASE_URL` cargado para ejecutarlo.
 - [ ] Deploy: proyecto en Vercel + dominio `admin.hikonta.com` + variables de entorno
 - [ ] Evaluar 2FA o allowlist de IP antes de producción
 - [ ] Decidir si se apaga `/admin` en `yelifin-sistema` una vez validado esto en producción —

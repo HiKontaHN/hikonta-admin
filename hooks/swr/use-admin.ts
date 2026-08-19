@@ -810,3 +810,76 @@ export function useAdminUnlinkPartnerOrg(partnerId: number | null) {
   };
   return { unlinkOrg, isRemoving };
 }
+
+// ── Lotes de créditos de suscripción ────────────────────────────────────
+// Distinto del patrocinio por lote de arriba: acá no hay organizaciones
+// todavía. El partner paga UNA vez por N suscripciones de M meses y le
+// quedan como créditos pendientes de asignar (ver
+// documentation/feature-sponsorship-invites.md — el canje a una org
+// concreta es un paso futuro, no construido todavía).
+
+export type AdminCreditBatch = {
+  id: number;
+  plan_id: number;
+  plan_name: string;
+  months: number;
+  quantity: number;
+  list_unit_price_usd: number;
+  unit_price_usd: number;
+  total_usd: number;
+  currency: string;
+  provider: "MANUAL" | "STRIPE" | "PAYPAL";
+  receipt_url: string | null;
+  notes: string | null;
+  created_at: string;
+  pending_count: number;
+  claimed_count: number;
+  revoked_count: number;
+};
+
+export function useAdminCreditBatches(partnerId: number | null) {
+  const { token } = useAuth();
+  const authFetch = useAuthFetch();
+  const { data, isLoading, error, mutate } = useSWR(
+    token && partnerId ? `/api/admin/partners/${partnerId}/credit-batches` : null,
+    (u: string) => authFetch(u),
+    { revalidateOnFocus: false }
+  );
+  return {
+    creditBatches: (data?.data ?? []) as AdminCreditBatch[],
+    isLoading,
+    error: (error as any)?.message ?? null,
+    mutate,
+  };
+}
+
+export type CreditBatchInput = {
+  plan_id: number;
+  months: number;
+  quantity: number;
+  // Precio final por suscripción — si se omite, el backend usa el precio
+  // de lista del plan (price_usd × months) sin descuento.
+  unit_price_usd?: number;
+  provider?: "MANUAL" | "STRIPE" | "PAYPAL";
+  currency?: string;
+  receipt_url?: string;
+  notes?: string;
+};
+
+export function useAdminCreateCreditBatch(partnerId: number | null) {
+  const authFetch = useAuthFetch();
+  const [isCreating, setIsCreating] = useState(false);
+  const createBatch = async (input: CreditBatchInput) => {
+    if (!partnerId) throw new Error("ID requerido");
+    setIsCreating(true);
+    try {
+      return await authFetch(`/api/admin/partners/${partnerId}/credit-batches`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    } finally {
+      setIsCreating(false);
+    }
+  };
+  return { createBatch, isCreating };
+}
