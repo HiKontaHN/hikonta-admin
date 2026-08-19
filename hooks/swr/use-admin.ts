@@ -58,6 +58,7 @@ export type AdminUserRow = {
 export type AdminUserDetail = AdminUserRow & {
   org_id: number | null;
   org_name: string | null;
+  role_id: number | null;
   photo_url: string | null;
   timezone: string;
   locale: string;
@@ -87,6 +88,33 @@ export type AdminUserActivity = {
   total_sales: number;
   total_products: number;
   total_transactions: number;
+};
+
+// Actividad de ESTA persona puntual (created_by), no de toda la org — ver
+// AdminUserActivity de arriba para el total de la organización.
+export type AdminPersonalActivity = {
+  total_sales: number;
+  total_sales_amount: number;
+  total_products: number;
+  total_transactions: number;
+};
+
+export type AdminRecentSale = {
+  id: number;
+  sale_number: string | null;
+  total: number;
+  sold_at: string;
+  status: string;
+  payment_method: string | null;
+};
+
+export type AdminModulePermission = {
+  module: string;
+  can_view: boolean;
+  can_edit: boolean;
+  can_delete: boolean;
+  show_costs: boolean;
+  show_profit: boolean;
 };
 
 export type AdminUserStorage = {
@@ -212,6 +240,9 @@ export function useAdminUser(id: number | null) {
     activity: (data?.activity ?? null) as AdminUserActivity | null,
     storage: (data?.storage ?? null) as AdminUserStorage | null,
     teamMembers: (data?.teamMembers ?? []) as AdminTeamMember[],
+    personalActivity: (data?.personalActivity ?? null) as AdminPersonalActivity | null,
+    recentSales: (data?.recentSales ?? []) as AdminRecentSale[],
+    permissions: (data?.permissions ?? []) as AdminModulePermission[],
     isLoading,
     error: (error as any)?.message ?? null,
     mutate,

@@ -36,6 +36,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         up.onboarding_completed,
         o.id                         AS org_id,
         o.name                       AS org_name,
+        r.id                         AS role_id,
         r.name                       AS role_name,
         r.is_owner,
         os.id                        AS subscription_id,
@@ -112,6 +113,38 @@ export async function GET(request: NextRequest, { params }: Params) {
         )::int AS image_count
     ` : [{ products: 0, sales: 0, transactions: 0, customers: 0, accounts: 0, credit_cards: 0, cc_transactions: 0, inventory_batches: 0, inventory_movements: 0, events: 0, image_count: 0 }];
 
+    // Actividad personal — filtrada por created_by, no por org_id. La
+    // tarjeta "Actividad" de arriba es de toda la organización (la ve
+    // cualquier miembro); esto es específicamente lo que ESTA persona
+    // registró, usando las columnas created_by que agregó v4.2 en las 24
+    // tablas de datos.
+    const [personalActivity] = await sql`
+      SELECT
+        (SELECT COUNT(*) FROM sales WHERE created_by = ${userId})::int AS total_sales,
+        (SELECT COALESCE(SUM(total), 0) FROM sales WHERE created_by = ${userId})::numeric AS total_sales_amount,
+        (SELECT COUNT(*) FROM products WHERE created_by = ${userId})::int AS total_products,
+        (SELECT COUNT(*) FROM transactions WHERE created_by = ${userId})::int AS total_transactions
+    `;
+
+    const recentSales = await sql`
+      SELECT id, sale_number, total, sold_at, status, payment_method
+      FROM sales
+      WHERE created_by = ${userId}
+      ORDER BY sold_at DESC
+      LIMIT 5
+    `;
+
+    // Permisos del rol — solo tiene sentido para no-dueños. El dueño tiene
+    // bypass total en el producto sin consultar org_role_permissions (ver
+    // "Decisiones de diseño" en multi-org-progress.md de yelifin-sistema),
+    // así que mostrarle una grilla de permisos sería engañoso.
+    const permissions = user.role_id && !user.is_owner ? await sql`
+      SELECT module, can_view, can_edit, can_delete, show_costs, show_profit
+      FROM org_role_permissions
+      WHERE role_id = ${user.role_id}
+      ORDER BY module
+    ` : [];
+
     // Equipo — el resto de organization_members de esta misma org, para que
     // el detalle de un usuario muestre con quién más comparte organización
     // (dueño + miembros), no solo a esta persona aislada.
@@ -127,7 +160,15 @@ export async function GET(request: NextRequest, { params }: Params) {
       ORDER BY r.is_owner DESC, om.joined_at ASC
     ` : [];
 
-    return Response.json({ user: { ...user, ...firebaseMeta }, activity, storage, teamMembers });
+    return Response.json({
+      user: { ...user, ...firebaseMeta },
+      activity,
+      storage,
+      teamMembers,
+      personalActivity,
+      recentSales,
+      permissions,
+    });
   } catch (error) {
     console.error("GET /api/admin/users/[id]:", error);
     return createErrorResponse("Error al obtener usuario", 500);

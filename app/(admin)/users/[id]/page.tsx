@@ -4,7 +4,10 @@
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { useAdminUser, useAdminUpdateUser, useAdminPlans, type AdminUserStorage, type AdminTeamMember } from "@/hooks/swr/use-admin";
+import {
+  useAdminUser, useAdminUpdateUser, useAdminPlans,
+  type AdminUserStorage, type AdminTeamMember, type AdminModulePermission, type AdminRecentSale,
+} from "@/hooks/swr/use-admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge }    from "@/components/ui/badge";
 import { Button }   from "@/components/ui/button";
@@ -24,8 +27,14 @@ import {
   ArrowLeft, Building2, Mail, Calendar, ShoppingCart,
   Package, ReceiptText, Crown, AlertTriangle, CheckCircle2,
   XCircle, Loader2, Save, Clock, RefreshCw, Database, Image,
-  KeyRound, Eye, EyeOff, Users2,
+  KeyRound, Eye, EyeOff, Users2, ShieldCheck, Minus, Check,
 } from "lucide-react";
+
+const MODULE_LABEL: Record<string, string> = {
+  DASHBOARD: "Dashboard", PRODUCTS: "Productos", INVENTORY: "Inventario",
+  SALES: "Ventas", CUSTOMERS: "Clientes", FINANCES: "Finanzas",
+  EVENTS: "Eventos", REPORTS: "Reportes", ADMIN: "Administración",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   TRIAL:     "Prueba",
@@ -47,7 +56,7 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
   const { back, push } = useRouter();
   const userId  = Number(id);
 
-  const { user, activity, storage, teamMembers, isLoading, mutate } = useAdminUser(userId);
+  const { user, activity, storage, teamMembers, personalActivity, recentSales, permissions, isLoading, mutate } = useAdminUser(userId);
   const { plans }                              = useAdminPlans();
   const { updateUser, isSaving }              = useAdminUpdateUser(userId);
 
@@ -237,6 +246,17 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
+      {/* Solo para no-dueños: qué puede hacer puntualmente + qué hizo puntualmente.
+          El dueño tiene bypass total de permisos (no consulta org_role_permissions)
+          y su "actividad" ya es efectivamente la de la org — mostrarle esto sería
+          redundante o directamente engañoso. */}
+      {user.org_name && user.is_owner === false && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <PermissionsCard permissions={permissions} />
+          <PersonalActivityCard displayName={displayName} activity={personalActivity} recentSales={recentSales} />
+        </div>
+      )}
+
       {/* Equipo — el resto de organization_members de esta misma org */}
       {user.org_name && teamMembers.length > 1 && (
         <TeamCard orgName={user.org_name} members={teamMembers} currentUserId={user.id} onSelect={(id) => push(`/users/${id}`)} />
@@ -406,6 +426,115 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
         <span className="font-medium break-all" suppressHydrationWarning>{value}</span>
       </div>
     </div>
+  );
+}
+
+function PermFlag({ on }: { on: boolean }) {
+  return on
+    ? <Check className="size-3.5 text-success mx-auto" />
+    : <Minus className="size-3.5 text-muted-foreground/30 mx-auto" />;
+}
+
+function PermissionsCard({ permissions }: { permissions: AdminModulePermission[] }) {
+  const visible = permissions.filter((p) => p.can_view || p.can_edit || p.can_delete || p.show_costs || p.show_profit);
+  return (
+    <Card className="pt-1 pb-1">
+      <CardHeader className="px-3.5 pt-3 pb-2">
+        <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+          <ShieldCheck className="size-3.5" /> Permisos de su rol
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-3.5 pb-3">
+        {visible.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Este rol no tiene acceso a ningún módulo todavía.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-muted-foreground">
+                  <th className="text-left font-medium pb-1.5">Módulo</th>
+                  <th className="font-medium pb-1.5 w-10">Ver</th>
+                  <th className="font-medium pb-1.5 w-10">Editar</th>
+                  <th className="font-medium pb-1.5 w-10">Borrar</th>
+                  <th className="font-medium pb-1.5 w-10">Costos</th>
+                  <th className="font-medium pb-1.5 w-10">Ganancias</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((p) => (
+                  <tr key={p.module} className="border-t">
+                    <td className="py-1.5 font-medium">{MODULE_LABEL[p.module] ?? p.module}</td>
+                    <td className="py-1.5"><PermFlag on={p.can_view} /></td>
+                    <td className="py-1.5"><PermFlag on={p.can_edit} /></td>
+                    <td className="py-1.5"><PermFlag on={p.can_delete} /></td>
+                    <td className="py-1.5"><PermFlag on={p.show_costs} /></td>
+                    <td className="py-1.5"><PermFlag on={p.show_profit} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PersonalActivityCard({
+  displayName, activity, recentSales,
+}: {
+  displayName: string;
+  activity: { total_sales: number; total_sales_amount: number; total_products: number; total_transactions: number } | null;
+  recentSales: AdminRecentSale[];
+}) {
+  return (
+    <Card className="pt-1 pb-1">
+      <CardHeader className="px-3.5 pt-3 pb-2">
+        <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+          <ShoppingCart className="size-3.5" /> Actividad de {displayName}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-3.5 pb-3 space-y-3">
+        <p className="text-[11px] text-muted-foreground -mt-1">
+          Solo lo que esta persona registró — no el total de la organización.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg bg-muted/50 px-2.5 py-2">
+            <p className="text-lg font-bold leading-tight">{activity?.total_sales ?? 0}</p>
+            <p className="text-[11px] text-muted-foreground">Ventas realizadas</p>
+          </div>
+          <div className="rounded-lg bg-muted/50 px-2.5 py-2">
+            <p className="text-lg font-bold leading-tight">${Number(activity?.total_sales_amount ?? 0).toFixed(2)}</p>
+            <p className="text-[11px] text-muted-foreground">Total vendido</p>
+          </div>
+          <div className="rounded-lg bg-muted/50 px-2.5 py-2">
+            <p className="text-lg font-bold leading-tight">{activity?.total_products ?? 0}</p>
+            <p className="text-[11px] text-muted-foreground">Productos creados</p>
+          </div>
+          <div className="rounded-lg bg-muted/50 px-2.5 py-2">
+            <p className="text-lg font-bold leading-tight">{activity?.total_transactions ?? 0}</p>
+            <p className="text-[11px] text-muted-foreground">Transacciones</p>
+          </div>
+        </div>
+
+        {recentSales.length > 0 && (
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Últimas ventas</p>
+            <div className="space-y-1">
+              {recentSales.map((s) => (
+                <div key={s.id} className="flex items-center justify-between text-xs py-1 border-t first:border-t-0">
+                  <span className="text-muted-foreground">{s.sale_number ?? `#${s.id}`}</span>
+                  <span suppressHydrationWarning className="text-muted-foreground">
+                    {new Date(s.sold_at).toLocaleDateString("es-HN", { day: "numeric", month: "short" })}
+                  </span>
+                  <span className="font-medium">${Number(s.total).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
