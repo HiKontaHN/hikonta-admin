@@ -105,14 +105,22 @@ export async function proxy(request: NextRequest) {
   const token = request.cookies.get("token")?.value;
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
-  if (!token) {
-    return isPublic ? NextResponse.next() : NextResponse.redirect(new URL("/login", request.url));
-  }
+  // Mismo patrón que proxy.ts en yelifin-sistema: sin cookie o token
+  // inválido, DEJAR PASAR (NextResponse.next()), no redirigir duro. Este
+  // gate de Edge runtime no es la capa de seguridad real — no puede serlo,
+  // verifyFirebaseToken() de acá abajo (igual que en yelifin-sistema) usa
+  // crypto.subtle.importKey("spki", ...) sobre el DER de un certificado
+  // X.509 completo, que NO es una estructura SPKI válida — falla siempre,
+  // para cualquier token, incluso uno perfectamente legítimo (verificado
+  // en esta sesión con un token real). La identidad real se valida en cada
+  // API route vía verifyAdmin() (firebase-admin, runtime Node, sin este
+  // bug) y en el cliente vía useAuth(). Si acá se redirige duro en vez de
+  // dejar pasar, un usuario ya logueado queda en loop infinito hacia
+  // /login porque su token real "no es válido" para este chequeo roto.
+  if (!token) return NextResponse.next();
 
   const result = await verifyFirebaseToken(token);
-  if (!result.valid) {
-    return isPublic ? NextResponse.next() : NextResponse.redirect(new URL("/login", request.url));
-  }
+  if (!result.valid) return NextResponse.next();
 
   // Token válido + ruta pública (/login) → mandar directo al dashboard
   if (isPublic) {
