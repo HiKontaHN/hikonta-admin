@@ -106,7 +106,7 @@ function RegisterPaymentDialog({
             <div className="space-y-1.5">
               <Label>Patrocinado por (opcional)</Label>
               <Select value={partnerId || "none"} onValueChange={(v) => setPartnerId(v === "none" ? "" : v)} disabled={isSaving}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Ninguno — paga la propia organización</SelectItem>
                   {orgPartners.map((p) => (
@@ -136,7 +136,7 @@ function RegisterPaymentDialog({
           <div className="space-y-1.5">
             <Label>Método</Label>
             <Select value={provider} onValueChange={setProvider} disabled={isSaving}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="MANUAL">Manual (efectivo/transferencia)</SelectItem>
                 <SelectItem value="STRIPE">Stripe</SelectItem>

@@ -149,13 +149,22 @@ function SponsorBatchDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Patrocinar organizaciones</DialogTitle>
         </DialogHeader>
 
         {results ? (
           <div className="space-y-3 py-1">
+            <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+              <CheckCircle2 className="size-4 shrink-0 text-success" />
+              <span><span className="font-medium">{results.filter((r) => r.success).length}</span> patrocinadas correctamente</span>
+              {results.some((r) => !r.success) && (
+                <span className="ml-auto flex items-center gap-1 text-destructive">
+                  <XCircle className="size-3.5" /> {results.filter((r) => !r.success).length} con error
+                </span>
+              )}
+            </div>
             <div className="max-h-64 space-y-1 overflow-y-auto">
               {results.map((r) => (
                 <div key={r.org_id} className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-sm">
@@ -172,59 +181,70 @@ function SponsorBatchDialog({
           </div>
         ) : (
           <>
-            <div className="space-y-4 py-1">
+            <div className="space-y-5 py-1">
               <div className="space-y-1.5">
                 <Label>Organizaciones</Label>
                 <MultiOrgPicker selected={orgs} onChange={setOrgs} />
                 <p className="text-xs text-muted-foreground">
-                  {orgs.length} organización{orgs.length !== 1 ? "es" : ""} seleccionada{orgs.length !== 1 ? "s" : ""}.
                   Las que todavía no estén vinculadas a este partner se vinculan automáticamente.
                 </p>
               </div>
 
+              <div className="space-y-1.5">
+                <Label>Plan</Label>
+                <Select value={planId} onValueChange={setPlanId} disabled={isSponsoring || plansLoading}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={plansLoading ? "Cargando…" : "Elegir plan"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {paidPlans.length === 0 ? (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">No hay planes pagos configurados</div>
+                    ) : (
+                      paidPlans.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>{p.name} · ${Number(p.price_usd).toFixed(2)}/mes</SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Plan</Label>
-                  <Select value={planId} onValueChange={setPlanId} disabled={isSponsoring || plansLoading}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={plansLoading ? "Cargando…" : "Elegir plan"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {paidPlans.length === 0 ? (
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No hay planes pagos configurados</div>
-                      ) : (
-                        paidPlans.map((p) => (
-                          <SelectItem key={p.id} value={String(p.id)}>{p.name} · ${Number(p.price_usd).toFixed(2)}/mes</SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <Label>Meses cubiertos</Label>
+                  <Input type="number" min="1" step="1" value={months} onChange={(e) => setMonths(e.target.value)} disabled={isSponsoring} className="w-full" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Meses cubiertos</Label>
-                  <Input type="number" min="1" step="1" value={months} onChange={(e) => setMonths(e.target.value)} disabled={isSponsoring} />
+                  <Label>Método</Label>
+                  <Select value={provider} onValueChange={setProvider} disabled={isSponsoring}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="MANUAL">Manual</SelectItem>
+                      <SelectItem value="STRIPE">Stripe</SelectItem>
+                      <SelectItem value="PAYPAL">PayPal</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
               {selectedPlan && (
-                <p className="text-xs text-muted-foreground">
-                  Monto por organización: <span className="font-medium text-foreground">${totalPerOrg.toFixed(2)}</span>
-                  {" "}(${Number(selectedPlan.price_usd).toFixed(2)} × {monthsNum} mes{monthsNum !== 1 ? "es" : ""})
-                  — {orgs.length > 0 && <>total del lote: <span className="font-medium text-foreground">${(totalPerOrg * orgs.length).toFixed(2)}</span></>}
-                </p>
+                <div className="rounded-lg border bg-muted/40 px-3.5 py-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Por organización</span>
+                    <span className="font-semibold">${totalPerOrg.toFixed(2)}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    ${Number(selectedPlan.price_usd).toFixed(2)} × {monthsNum || 0} mes{monthsNum !== 1 ? "es" : ""}
+                  </p>
+                  {orgs.length > 0 && (
+                    <div className="mt-2 flex items-center justify-between border-t pt-2">
+                      <span className="text-muted-foreground">
+                        Total del lote <span className="text-xs">({orgs.length} org{orgs.length !== 1 ? "s" : ""})</span>
+                      </span>
+                      <span className="font-semibold">${(totalPerOrg * orgs.length).toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
               )}
-
-              <div className="space-y-1.5">
-                <Label>Método</Label>
-                <Select value={provider} onValueChange={setProvider} disabled={isSponsoring}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="MANUAL">Manual (efectivo/transferencia)</SelectItem>
-                    <SelectItem value="STRIPE">Stripe</SelectItem>
-                    <SelectItem value="PAYPAL">PayPal</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
 
               <p className="text-xs text-muted-foreground">
                 Cada organización queda con un pago independiente a su nombre, en el plan elegido —
