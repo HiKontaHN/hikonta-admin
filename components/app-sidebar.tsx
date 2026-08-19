@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Users, Crown, Shield, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Home, Users, Crown, Shield, Receipt, Handshake, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HiKontaIcon } from "@/components/shared/hikonta-icon";
 import { HiKontaTitle } from "@/components/shared/hikonta-title";
@@ -22,6 +22,8 @@ const NAV = [
   { title: "Resumen",         url: "/dashboard", icon: Home },
   { title: "Usuarios",        url: "/users",      icon: Users },
   { title: "Planes",          url: "/plans",      icon: Crown },
+  { title: "Pagos",           url: "/payments",   icon: Receipt },
+  { title: "Partners",        url: "/partners",   icon: Handshake },
   { title: "Administradores", url: "/admins",     icon: Shield },
 ];
 

@@ -429,3 +429,257 @@ export function useAdminCreateUser() {
   };
   return { createUser, isCreating };
 }
+
+// ── Organizaciones (búsqueda, para pickers) ─────────────────────────────
+
+export type AdminOrgSearchResult = {
+  id: number;
+  name: string;
+  currency: string;
+  owner_email: string;
+  owner_display_name: string | null;
+  subscription_status: string | null;
+  current_period_end: string | null;
+  plan_name: string | null;
+};
+
+export function useAdminOrgSearch(query: string) {
+  const { token } = useAuth();
+  const authFetch = useAuthFetch();
+  const { data, isLoading, error } = useSWR(
+    token ? `/api/admin/organizations?search=${encodeURIComponent(query)}` : null,
+    (u: string) => authFetch(u),
+    { revalidateOnFocus: false, dedupingInterval: 10_000 }
+  );
+  return {
+    results: (data?.data ?? []) as AdminOrgSearchResult[],
+    isLoading,
+    error: (error as any)?.message ?? null,
+  };
+}
+
+// ── Pagos ─────────────────────────────────────────────────────────────
+
+export type AdminPayment = {
+  id: number;
+  org_id: number;
+  amount_usd: number;
+  currency: string;
+  status: string;
+  provider: string | null;
+  months_purchased: number | null;
+  covers_period_start: string | null;
+  covers_period_end: string | null;
+  paid_at: string | null;
+  created_at: string;
+  receipt_url: string | null;
+  paid_by_partner_id: number | null;
+  org_name: string | null;
+  owner_email: string | null;
+  partner_name: string | null;
+};
+
+export function useAdminPayments(params: { search?: string; status?: string; page?: number } = {}) {
+  const { token } = useAuth();
+  const authFetch = useAuthFetch();
+  const { search = "", status = "all", page = 1 } = params;
+  const key = token
+    ? `/api/admin/payments?search=${encodeURIComponent(search)}&status=${status}&page=${page}`
+    : null;
+
+  const { data, isLoading, error, mutate } = useSWR(
+    key,
+    (u: string) => authFetch(u),
+    { revalidateOnFocus: false, dedupingInterval: 15_000 }
+  );
+  return {
+    payments: (data?.data ?? []) as AdminPayment[],
+    total: (data?.total ?? 0) as number,
+    pages: (data?.pages ?? 1) as number,
+    isLoading,
+    error: (error as any)?.message ?? null,
+    mutate,
+  };
+}
+
+export type RegisterPaymentInput = {
+  org_id: number;
+  amount_usd: number;
+  months_purchased: number;
+  provider?: "MANUAL" | "STRIPE" | "PAYPAL";
+  currency?: string;
+  receipt_url?: string;
+};
+
+export function useAdminRegisterPayment() {
+  const authFetch = useAuthFetch();
+  const [isSaving, setIsSaving] = useState(false);
+  const registerPayment = async (input: RegisterPaymentInput) => {
+    setIsSaving(true);
+    try {
+      return await authFetch("/api/admin/payments", { method: "POST", body: JSON.stringify(input) });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  return { registerPayment, isSaving };
+}
+
+// ── Partners ─────────────────────────────────────────────────────────
+
+export type AdminPartner = {
+  id: number;
+  name: string;
+  contact_name: string | null;
+  email: string;
+  phone: string | null;
+  is_active: boolean;
+  created_at: string;
+  user_email: string | null;
+  org_count: number;
+};
+
+export type AdminPartnerOrgLink = {
+  link_id: number;
+  org_id: number;
+  share_financials: boolean;
+  linked_at: string;
+  org_name: string;
+  currency: string;
+  owner_email: string;
+};
+
+export function useAdminPartners() {
+  const { token } = useAuth();
+  const authFetch = useAuthFetch();
+  const { data, isLoading, error, mutate } = useSWR(
+    token ? "/api/admin/partners" : null,
+    (u: string) => authFetch(u),
+    { revalidateOnFocus: false, dedupingInterval: 15_000 }
+  );
+  return {
+    partners: (data?.data ?? []) as AdminPartner[],
+    isLoading,
+    error: (error as any)?.message ?? null,
+    mutate,
+  };
+}
+
+export function useAdminPartner(id: number | null) {
+  const { token } = useAuth();
+  const authFetch = useAuthFetch();
+  const { data, isLoading, error, mutate } = useSWR(
+    token && id ? `/api/admin/partners/${id}` : null,
+    (u: string) => authFetch(u),
+    { revalidateOnFocus: false }
+  );
+  return {
+    partner: (data?.data ?? null) as (AdminPartner & { user_id: number | null; updated_at: string }) | null,
+    organizations: (data?.organizations ?? []) as AdminPartnerOrgLink[],
+    isLoading,
+    error: (error as any)?.message ?? null,
+    mutate,
+  };
+}
+
+export type PartnerInput = {
+  name?: string;
+  contact_name?: string | null;
+  email?: string;
+  phone?: string | null;
+  is_active?: boolean;
+  user_email?: string | null;
+};
+
+export function useAdminCreatePartner() {
+  const authFetch = useAuthFetch();
+  const [isCreating, setIsCreating] = useState(false);
+  const createPartner = async (input: PartnerInput) => {
+    setIsCreating(true);
+    try {
+      return await authFetch("/api/admin/partners", { method: "POST", body: JSON.stringify(input) });
+    } finally {
+      setIsCreating(false);
+    }
+  };
+  return { createPartner, isCreating };
+}
+
+export function useAdminUpdatePartner() {
+  const authFetch = useAuthFetch();
+  const [isSaving, setIsSaving] = useState(false);
+  const updatePartner = async (id: number, input: PartnerInput) => {
+    setIsSaving(true);
+    try {
+      return await authFetch(`/api/admin/partners/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  return { updatePartner, isSaving };
+}
+
+export function useAdminDeletePartner() {
+  const authFetch = useAuthFetch();
+  const [isDeleting, setIsDeleting] = useState(false);
+  const deletePartner = async (id: number) => {
+    setIsDeleting(true);
+    try {
+      return await authFetch(`/api/admin/partners/${id}`, { method: "DELETE" });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+  return { deletePartner, isDeleting };
+}
+
+export function useAdminLinkPartnerOrg(partnerId: number | null) {
+  const authFetch = useAuthFetch();
+  const [isLinking, setIsLinking] = useState(false);
+  const linkOrg = async (orgId: number, shareFinancials: boolean) => {
+    if (!partnerId) throw new Error("ID requerido");
+    setIsLinking(true);
+    try {
+      return await authFetch(`/api/admin/partners/${partnerId}/organizations`, {
+        method: "POST",
+        body: JSON.stringify({ org_id: orgId, share_financials: shareFinancials }),
+      });
+    } finally {
+      setIsLinking(false);
+    }
+  };
+  return { linkOrg, isLinking };
+}
+
+export function useAdminUpdatePartnerOrgLink(partnerId: number | null) {
+  const authFetch = useAuthFetch();
+  const [isSaving, setIsSaving] = useState(false);
+  const updateLink = async (orgId: number, shareFinancials: boolean) => {
+    if (!partnerId) throw new Error("ID requerido");
+    setIsSaving(true);
+    try {
+      return await authFetch(`/api/admin/partners/${partnerId}/organizations/${orgId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ share_financials: shareFinancials }),
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  return { updateLink, isSaving };
+}
+
+export function useAdminUnlinkPartnerOrg(partnerId: number | null) {
+  const authFetch = useAuthFetch();
+  const [isRemoving, setIsRemoving] = useState(false);
+  const unlinkOrg = async (orgId: number) => {
+    if (!partnerId) throw new Error("ID requerido");
+    setIsRemoving(true);
+    try {
+      return await authFetch(`/api/admin/partners/${partnerId}/organizations/${orgId}`, { method: "DELETE" });
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+  return { unlinkOrg, isRemoving };
+}

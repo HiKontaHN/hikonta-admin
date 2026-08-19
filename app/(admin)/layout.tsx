@@ -18,6 +18,8 @@ const NAV_LABELS: Record<string, string> = {
   "/dashboard": "Resumen",
   "/users": "Usuarios",
   "/plans": "Planes",
+  "/payments": "Pagos",
+  "/partners": "Partners",
   "/admins": "Administradores",
 };
 
