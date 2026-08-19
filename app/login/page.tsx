@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/firebase.config";
 import { setTokenCookie } from "@/lib/token-cookie";
@@ -9,16 +8,16 @@ import { HiKontaIcon } from "@/components/shared/hikonta-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Mail, Loader2 } from "lucide-react";
+import { Mail, Loader2, Eye, EyeOff } from "lucide-react";
 
 // Sin /register — un administrador se vincula a mano en Neon (tabla
 // `admins`, ver database/admin/ en yelifin-sistema). Este panel es el único
 // con capacidad de resetear contraseñas de cualquier usuario de la
 // plataforma; no tiene alta pública.
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -35,7 +34,12 @@ export default function LoginPage() {
       // el middleware no encuentra cookie y rebota de vuelta a /login.
       const idToken = await cred.user.getIdToken();
       setTokenCookie(idToken);
-      router.push("/dashboard");
+      // Navegación dura, no router.push(). El router cache del cliente puede
+      // haber guardado una respuesta previa de /dashboard (redirigida a
+      // /login por el middleware, de antes de tener cookie) y servirla de
+      // nuevo sin volver a pasar por proxy.ts. Un reload completo garantiza
+      // una petición fresca con la cookie ya seteada.
+      window.location.href = "/dashboard";
     } catch {
       setError("Correo o contraseña incorrectos");
     } finally {
@@ -71,13 +75,24 @@ export default function LoginPage() {
 
           <div className="space-y-1.5">
             <Label htmlFor="password">Contraseña</Label>
-            <Input
-              id="password"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowPassword((v) => !v)}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
           </div>
 
           {error && <p className="text-sm font-medium text-destructive">{error}</p>}
