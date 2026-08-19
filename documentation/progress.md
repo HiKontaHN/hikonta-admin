@@ -1,6 +1,6 @@
 # Estado del proyecto — HiKonta Admin
 
-> Última actualización: 18 de agosto de 2026
+> Última actualización: 19 de agosto de 2026
 
 ---
 
@@ -249,6 +249,13 @@ cuáles de las orgs que el partner alguna vez cubrió siguen bajo su patrocinio 
 
 ## 11. Pendiente
 
+- [ ] **Invitaciones de suscripción patrocinada** — feature nueva pedida por el usuario, diseño en
+      pausa a propósito (guardado, no construido). El partner compra N suscripciones sin org
+      asignada todavía y las reparte por email o link único para que gente nueva se registre ya
+      con el plan puesto. Dos preguntas de diseño sin resolver + boceto técnico completo en
+      `documentation/feature-sponsorship-invites.md`. Ya decidido: el lote se genera desde
+      `hikonta-admin` (este repo); falta decidir qué hace el link/email y si hace falta un
+      proveedor de email saliente (no existe hoy en ningún repo de HiKonta).
 - [ ] Deploy: proyecto en Vercel + dominio `admin.hikonta.com` + variables de entorno
 - [ ] Evaluar 2FA o allowlist de IP antes de producción
 - [ ] Decidir si se apaga `/admin` en `yelifin-sistema` una vez validado esto en producción —
