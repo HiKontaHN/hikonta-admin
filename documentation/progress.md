@@ -235,6 +235,16 @@ pago y no un estado de la org, un pago posterior que la organización pague por 
 automáticamente NO se le cuenta a ningún partner salvo que un admin lo marque explícitamente en
 ese pago puntual.
 
+**Patrocinio en lote** — caso real: un partner compra N suscripciones de M meses para N orgs
+distintas de una vez (ej. 20 emprendedores por 3 meses). `POST /api/admin/partners/[id]/sponsor`
+registra el mismo pago patrocinado para varias organizaciones en una sola llamada (vinculándolas
+si hace falta), cada una como resultado independiente — si una falla no aborta el resto. En el
+detalle de partner, cada organización vinculada muestra un badge **"Activo"** o **"Vencido — paga
+por su cuenta"** (`currently_sponsored`, calculado en vivo comparando `sponsored_until` con `NOW()`)
+más un contador "X con patrocinio activo ahora" en el header — así queda visible, sin ambigüedad,
+cuáles de las orgs que el partner alguna vez cubrió siguen bajo su patrocinio hoy y cuáles ya
+"se graduaron" a pagar por su cuenta.
+
 ---
 
 ## 11. Pendiente
@@ -248,8 +258,8 @@ ese pago puntual.
 - [ ] `git push` — todo sigue comiteado solo localmente desde el commit inicial; confirmar con el
       usuario antes de subir
 - [ ] Probar en el navegador, con datos reales, los flujos nuevos que solo se verificaron a nivel
-      de query/código en esta sesión: registrar un pago real (incluyendo con patrocinio de
-      partner), crear un partner y vincularle una organización
+      de query/código: registrar un pago real (incluyendo con patrocinio de partner), crear un
+      partner y vincularle una organización, y patrocinar un lote de varias orgs de una vez
 - [ ] UI de exportar a Excel / filtros adicionales — no existían tampoco en las páginas originales
       de `yelifin-sistema`
 
