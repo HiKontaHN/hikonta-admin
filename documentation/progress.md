@@ -147,7 +147,47 @@ Reglas de negocio en el backend (no solo deshabilitado en el botón — también
 
 ---
 
-## 9. Pendiente
+## 9. Bugs de login encontrados y corregidos (sesión del 18 de agosto de 2026, continuación)
+
+Al probar el login real por primera vez aparecieron tres problemas encadenados, todos en el
+cliente/middleware — el backend (`verifyAdmin()`, `firebase-admin`, JOIN contra `admins`) se probó
+aparte con un token real minteado vía `adminAuth.createCustomToken()` y funcionó perfecto desde el
+principio, así que nunca fue sospechoso.
+
+1. **Race condition cookie vs. redirect** — `login/page.tsx` hacía `router.push("/dashboard")`
+   apenas resolvía `signInWithEmailAndPassword()`, pero la cookie `token` (que lee `proxy.ts`) la
+   seteaba el listener `onIdTokenChanged` de `useAuth()`, que dispara async y llegaba después.
+   Fix: setear la cookie explícitamente en `login/page.tsx` con el ID token recién obtenido, antes
+   de navegar.
+2. **Router cache del cliente** — ni así alcanzaba: `router.push` podía servir una respuesta
+   cacheada de `/dashboard` de un intento anterior (rebotado a `/login` por el middleware, de antes
+   de tener cookie). Fix: `window.location.href = "/dashboard"` en vez de `router.push` — fuerza
+   una petición fresca sin caché.
+3. **El bug real, en `proxy.ts`** — `verifyFirebaseToken()` usa
+   `crypto.subtle.importKey("spki", certDer, ...)` sobre el DER de un **certificado X.509
+   completo**, que no es una estructura SPKI válida (son ASN.1 distintos) — `importKey` tira
+   `Invalid keyData` **siempre**, para cualquier token, incluso uno perfectamente válido.
+   Verificado directo: se minteó un token real y se le pasó a una copia exacta de esta función —
+   falló. **Este mismo bug de cripto existe también en `yelifin-sistema/proxy.ts`** (código casi
+   idéntico) — no se tocó ese repo, solo se confirmó ahí. La diferencia es que en
+   `yelifin-sistema`, "token inválido" hace `NextResponse.next()` (no bloquea — la seguridad real
+   vive en `verifyAdmin()`/`firebase-admin` de cada API route, sin este bug), mientras que acá
+   redirigía duro a `/login`, causando un loop infinito para cualquier usuario real. Fix: copiado
+   el patrón de `yelifin-sistema` — sin cookie o token inválido, dejar pasar. `proxy.ts` queda como
+   gate de UX, no como límite de seguridad real (ese sigue siendo `verifyAdmin()` en cada
+   `/api/admin/*`, ya verificado funcionando).
+
+**Pendiente relacionado, no resuelto:** el import SPKI-sobre-X.509 sigue roto en ambos repos — el
+middleware nunca hace una verificación de firma real, solo pasa o no según haya cookie. Si se
+quiere que el gate de Edge verifique de verdad (no solo delegar todo a las API routes), hay que
+cambiar a un endpoint que devuelva JWK directo
+(`https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`) e
+`importKey("jwk", ...)` en vez de parsear el X.509. No se hizo en esta sesión — no se pidió, y
+toca un archivo compartido conceptualmente con `yelifin-sistema` que se decidió no tocar todavía.
+
+---
+
+## 10. Pendiente
 
 - [ ] Deploy: proyecto en Vercel + dominio `admin.hikonta.com` + variables de entorno
 - [ ] Evaluar 2FA o allowlist de IP antes de producción (es el panel con capacidad de resetear
@@ -155,13 +195,15 @@ Reglas de negocio en el backend (no solo deshabilitado en el botón — también
 - [ ] Decidir si se apaga `/admin` en `yelifin-sistema` una vez validado esto en producción —
       **decisión pospuesta a propósito**, `/admin` en `yelifin-sistema` sigue siendo el fallback
       hasta validar `hikonta-admin` en producción real
-- [ ] Probar un login real de punta a punta (Firebase → `/api/admin/me` → panel) — se verificó que
-      el código y la infraestructura están listos, pero no se hizo la prueba interactiva de login
-      en esta sesión
+- [ ] Considerar el fix real del bug de cripto en `verifyFirebaseToken()` (ver sección 9) — hoy el
+      middleware no verifica nada de verdad, solo delega a las API routes
+- [ ] Confirmar login real de punta a punta con el tercer fix (sección 9, punto 3) aplicado — los
+      dos primeros fixes no alcanzaron solos, este tercero recién se probó a nivel de código
+      (token real + función copiada), falta la confirmación interactiva en el navegador
 
 ---
 
-## 10. Cómo retomar
+## 11. Cómo retomar
 
 ```bash
 cd hikonta-admin
