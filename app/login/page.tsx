@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/firebase.config";
+import { setTokenCookie } from "@/lib/token-cookie";
 import { HiKontaIcon } from "@/components/shared/hikonta-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +27,14 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+      // proxy.ts (middleware) valida la cookie `token`, no el estado de
+      // Firebase en el cliente — hay que setearla ACÁ antes de navegar. Si
+      // se deja que la setee el listener onIdTokenChanged de useAuth() (que
+      // dispara async, después de esta función), router.push llega primero:
+      // el middleware no encuentra cookie y rebota de vuelta a /login.
+      const idToken = await cred.user.getIdToken();
+      setTokenCookie(idToken);
       router.push("/dashboard");
     } catch {
       setError("Correo o contraseña incorrectos");
