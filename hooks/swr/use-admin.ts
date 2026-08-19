@@ -72,6 +72,17 @@ export type AdminUserDetail = AdminUserRow & {
   max_sales_per_month: number | null;
 };
 
+export type AdminTeamMember = {
+  user_id: number;
+  email: string;
+  display_name: string | null;
+  user_is_active: boolean;
+  role_name: string;
+  is_owner: boolean;
+  membership_is_active: boolean;
+  joined_at: string | null;
+};
+
 export type AdminUserActivity = {
   total_sales: number;
   total_products: number;
@@ -200,6 +211,7 @@ export function useAdminUser(id: number | null) {
     user: (data?.user ?? null) as AdminUserDetail | null,
     activity: (data?.activity ?? null) as AdminUserActivity | null,
     storage: (data?.storage ?? null) as AdminUserStorage | null,
+    teamMembers: (data?.teamMembers ?? []) as AdminTeamMember[],
     isLoading,
     error: (error as any)?.message ?? null,
     mutate,

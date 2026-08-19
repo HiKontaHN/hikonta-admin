@@ -4,7 +4,7 @@
 import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { useAdminUser, useAdminUpdateUser, useAdminPlans, type AdminUserStorage } from "@/hooks/swr/use-admin";
+import { useAdminUser, useAdminUpdateUser, useAdminPlans, type AdminUserStorage, type AdminTeamMember } from "@/hooks/swr/use-admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge }    from "@/components/ui/badge";
 import { Button }   from "@/components/ui/button";
@@ -44,10 +44,10 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { back } = useRouter();
+  const { back, push } = useRouter();
   const userId  = Number(id);
 
-  const { user, activity, storage, isLoading, mutate } = useAdminUser(userId);
+  const { user, activity, storage, teamMembers, isLoading, mutate } = useAdminUser(userId);
   const { plans }                              = useAdminPlans();
   const { updateUser, isSaving }              = useAdminUpdateUser(userId);
 
@@ -237,6 +237,11 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
+      {/* Equipo — el resto de organization_members de esta misma org */}
+      {user.org_name && teamMembers.length > 1 && (
+        <TeamCard orgName={user.org_name} members={teamMembers} currentUserId={user.id} onSelect={(id) => push(`/users/${id}`)} />
+      )}
+
       {/* Almacenamiento */}
       {storage && <StorageCard storage={storage} />}
 
@@ -401,6 +406,56 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
         <span className="font-medium break-all" suppressHydrationWarning>{value}</span>
       </div>
     </div>
+  );
+}
+
+function TeamCard({
+  orgName, members, currentUserId, onSelect,
+}: {
+  orgName: string; members: AdminTeamMember[]; currentUserId: number; onSelect: (id: number) => void;
+}) {
+  return (
+    <Card className="pt-1 pb-1">
+      <CardHeader className="px-3.5 pt-3 pb-2">
+        <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+          <Users2 className="size-3.5" /> Equipo de {orgName}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-3.5 pb-3 space-y-1">
+        {members.map((m) => {
+          const isCurrent = m.user_id === currentUserId;
+          return (
+            <button
+              key={m.user_id}
+              type="button"
+              disabled={isCurrent}
+              onClick={() => onSelect(m.user_id)}
+              className={`w-full flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-left transition-colors ${
+                isCurrent ? "bg-muted/60 cursor-default" : "hover:bg-muted/40"
+              }`}
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {m.display_name || m.email} {isCurrent && <span className="text-xs text-muted-foreground">(estás viendo a esta persona)</span>}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {!m.user_is_active && (
+                  <Badge className="bg-red-100 text-red-700 border-red-200 border text-[10px] py-0">Inactivo</Badge>
+                )}
+                {!m.membership_is_active && (
+                  <Badge className="bg-gray-100 text-gray-600 border-gray-200 border text-[10px] py-0">Removido</Badge>
+                )}
+                <Badge variant="outline" className={`text-[10px] py-0 ${!m.is_owner ? "bg-secondary" : ""}`}>
+                  {m.is_owner ? "Dueño" : m.role_name}
+                </Badge>
+              </div>
+            </button>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }
 

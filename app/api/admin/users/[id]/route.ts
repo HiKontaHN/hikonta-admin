@@ -112,7 +112,22 @@ export async function GET(request: NextRequest, { params }: Params) {
         )::int AS image_count
     ` : [{ products: 0, sales: 0, transactions: 0, customers: 0, accounts: 0, credit_cards: 0, cc_transactions: 0, inventory_batches: 0, inventory_movements: 0, events: 0, image_count: 0 }];
 
-    return Response.json({ user: { ...user, ...firebaseMeta }, activity, storage });
+    // Equipo — el resto de organization_members de esta misma org, para que
+    // el detalle de un usuario muestre con quién más comparte organización
+    // (dueño + miembros), no solo a esta persona aislada.
+    const teamMembers = orgId ? await sql`
+      SELECT
+        mu.id AS user_id, mu.email, mu.display_name, mu.is_active AS user_is_active,
+        r.name AS role_name, r.is_owner,
+        om.is_active AS membership_is_active, om.joined_at
+      FROM organization_members om
+      JOIN users mu     ON mu.id = om.user_id
+      JOIN org_roles r  ON r.id  = om.role_id
+      WHERE om.org_id = ${orgId}
+      ORDER BY r.is_owner DESC, om.joined_at ASC
+    ` : [];
+
+    return Response.json({ user: { ...user, ...firebaseMeta }, activity, storage, teamMembers });
   } catch (error) {
     console.error("GET /api/admin/users/[id]:", error);
     return createErrorResponse("Error al obtener usuario", 500);
