@@ -51,12 +51,21 @@ público.
 - **Backend (`hikonta-admin`):** `GET/POST /api/admin/partners/[id]/credit-batches`. El POST valida
   plan pago, meses ≥ 1, cantidad 1–200, y que el precio final sea ≥ 0; si falla la inserción de los
   créditos individuales, borra la fila de factura para no dejar un lote fantasma sin créditos.
-- **Frontend:** en el detalle de partner (`/partners/[id]`), sección nueva "Créditos de suscripción"
-  con tabla de lotes (plan, duración, cantidad, precio pactado + % descuento, total cobrado,
-  pendientes/canjeados, fecha) y diálogo "Comprar créditos" — precio se autocompleta con el de
-  lista y es editable (eso ES el mecanismo de descuento, sin campo de % aparte).
+- **Frontend (`hikonta-admin`):** en el detalle de partner (`/partners/[id]`), sección nueva
+  "Créditos de suscripción" con tabla de lotes (plan, duración, cantidad, precio pactado + %
+  descuento, total cobrado, pendientes/canjeados, fecha) y diálogo "Comprar créditos" — precio se
+  autocompleta con el de lista y es editable (eso ES el mecanismo de descuento, sin campo de %
+  aparte).
+- **Lado del partner (`hikonta-partners`, sesión 3):** `GET /api/partner/credits` — de **solo
+  lectura**, a propósito: el lote lo arma un admin de HiKonta, el partner solo lo ve. Sección nueva
+  "Créditos de suscripción" en `/subscriptions` (debajo de la tabla de organizaciones, arriba del
+  historial de patrocinios), mismo estilo que esa página — muestra plan, duración, cantidad, total
+  pagado, y pendientes/asignados por lote. Sin ninguna acción todavía (nada que repartir hasta que
+  exista la fase 2).
 - **Pendiente de esta fase:** correr `05-credit-batches.sql` contra Neon y probar el flujo end-to-end
-  con datos reales — no se pudo en esta sesión por falta de credenciales de base de datos.
+  con datos reales en ambos repos — no se pudo en ninguna sesión por falta de credenciales de base
+  de datos (ni `hikonta-admin/.env.local` ni `hikonta-partners/.env.local` tienen `DATABASE_URL`
+  cargado en este entorno).
 
 ## Preguntas abiertas (sin resolver)
 

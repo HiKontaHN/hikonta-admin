@@ -261,6 +261,12 @@ de suscripción", arriba de "Organizaciones vinculadas". **`database/partners/05
 (en `yelifin-sistema`) todavía no se corrió contra Neon** — este entorno no tenía `DATABASE_URL`
 cargado en esta sesión.
 
+**Vista del partner (`hikonta-partners`)** — el propio partner ve sus créditos, de solo lectura,
+desde `GET /api/partner/credits` + sección "Créditos de suscripción" en `/subscriptions` (mismo
+repo/página donde ya patrocina orgs puntuales). No puede comprar créditos ni repartirlos todavía —
+eso sigue siendo exclusivo de `hikonta-admin` (comprar) y de la fase 2 sin construir (repartir), ver
+`documentation/feature-sponsorship-invites.md`.
+
 ---
 
 ## 11. Pendiente
