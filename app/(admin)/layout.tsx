@@ -8,7 +8,10 @@ import { HiKontaIcon } from "@/components/shared/hikonta-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Home, Users, Crown, LogOut, Menu, X, Shield } from "lucide-react";
+import {
+  Home, Users, Crown, Shield, LogOut, Menu, X,
+  ChevronsLeft, ChevronsRight,
+} from "lucide-react";
 
 const NAV = [
   { href: "/dashboard", label: "Resumen", icon: Home },
@@ -17,11 +20,28 @@ const NAV = [
   { href: "/admins", label: "Administradores", icon: Shield },
 ];
 
+// Recordar el estado colapsado entre sesiones — no tiene sentido que se
+// reabra expandida cada vez que se navega o se refresca la página.
+const SIDEBAR_COLLAPSED_KEY = "hikonta-admin:sidebar-collapsed";
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { me, loading, denied, bypassing, signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [navOpen, setNavOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") setCollapsed(true);
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      return next;
+    });
+  }
 
   useEffect(() => {
     // "denied" es sesión válida sin acceso (no está en `admins`, o está
@@ -64,11 +84,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (!me) return null;
 
+  const currentLabel =
+    NAV.find((item) => pathname === item.href || pathname.startsWith(item.href + "/"))?.label
+    ?? "HiKonta Admin";
+
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Sidebar — desktop */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r bg-card md:flex">
-        <SidebarContent pathname={pathname} me={me} bypassing={bypassing} signOut={signOut} />
+      {/* Sidebar — desktop, fija (sticky) y colapsable */}
+      <aside
+        className={cn(
+          "sticky top-0 hidden h-screen shrink-0 flex-col border-r bg-card transition-[width] duration-200 md:flex",
+          collapsed ? "w-16" : "w-60"
+        )}
+      >
+        <SidebarContent pathname={pathname} collapsed={collapsed} onToggleCollapse={toggleCollapsed} />
       </aside>
 
       {/* Drawer — mobile */}
@@ -81,19 +110,33 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 <X className="size-4" />
               </Button>
             </div>
-            <SidebarContent pathname={pathname} me={me} bypassing={bypassing} signOut={signOut} />
+            <SidebarContent pathname={pathname} collapsed={false} onToggleCollapse={null} />
           </aside>
         </div>
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Navbar — mobile */}
-        <header className="flex items-center justify-between border-b bg-card px-4 py-3 md:hidden">
-          <Button variant="ghost" size="icon" onClick={() => setNavOpen(true)}>
-            <Menu className="size-5" />
-          </Button>
-          <HiKontaIcon className="h-7 w-7" />
-          <ThemeToggle />
+        {/* Navbar — fija arriba, visible en todos los tamaños. El sidebar
+            guarda la navegación; acá vive lo que hace falta ver siempre:
+            de dónde estás parado, modo oscuro y cerrar sesión. */}
+        <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b bg-card/95 px-4 py-3 backdrop-blur sm:px-6">
+          <div className="flex min-w-0 items-center gap-2">
+            <Button variant="ghost" size="icon" className="shrink-0 md:hidden" onClick={() => setNavOpen(true)}>
+              <Menu className="size-5" />
+            </Button>
+            <span className="truncate text-sm font-semibold">{currentLabel}</span>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1.5">
+            <ThemeToggle />
+            <span className="hidden max-w-40 truncate text-xs text-muted-foreground sm:inline">
+              {me.displayName ?? me.email}
+            </span>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => signOut()}>
+              <LogOut className="size-3.5" />
+              <span className="hidden sm:inline">Cerrar sesión</span>
+            </Button>
+          </div>
         </header>
 
         {bypassing && (
@@ -111,23 +154,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
 function SidebarContent({
   pathname,
-  me,
-  bypassing,
-  signOut,
+  collapsed,
+  onToggleCollapse,
 }: {
   pathname: string;
-  me: { email: string; displayName: string | null };
-  bypassing: boolean;
-  signOut: () => void;
+  collapsed: boolean;
+  onToggleCollapse: (() => void) | null;
 }) {
   return (
     <>
-      <div className="flex items-center gap-2.5 border-b px-5 py-4">
-        <HiKontaIcon className="h-8 w-8" />
-        <div>
-          <p className="text-sm font-semibold leading-tight">HiKonta</p>
-          <p className="text-xs text-muted-foreground leading-tight">Administración</p>
-        </div>
+      <div className={cn("flex items-center gap-2.5 border-b px-5 py-4", collapsed && "justify-center px-0")}>
+        <HiKontaIcon className="h-8 w-8 shrink-0" />
+        {!collapsed && (
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold leading-tight">HiKonta</p>
+            <p className="truncate text-xs leading-tight text-muted-foreground">Administración</p>
+          </div>
+        )}
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 p-3">
@@ -138,31 +181,36 @@ function SidebarContent({
             <Link
               key={item.href}
               href={item.href}
+              title={collapsed ? item.label : undefined}
               className={cn(
                 "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                collapsed && "justify-center px-2",
                 active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               )}
             >
-              <Icon className="size-4" />
-              {item.label}
+              <Icon className="size-4 shrink-0" />
+              {!collapsed && item.label}
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t p-3">
-        <div className="mb-2 flex items-center justify-between gap-2 px-1">
-          <div className="min-w-0">
-            <p className="truncate text-xs font-medium">{me.displayName ?? me.email}</p>
-            {bypassing && <p className="text-[10px] text-warning">bypass activo</p>}
-          </div>
-          <ThemeToggle />
+      {/* El toggle de colapsar solo existe en el sidebar fijo de desktop —
+          el drawer mobile es temporal, no tiene sentido colapsarlo. */}
+      {onToggleCollapse && (
+        <div className="border-t p-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("w-full gap-2 text-muted-foreground", collapsed ? "justify-center px-0" : "justify-start")}
+            onClick={onToggleCollapse}
+            title={collapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+          >
+            {collapsed ? <ChevronsRight className="size-4" /> : <ChevronsLeft className="size-4" />}
+            {!collapsed && "Colapsar"}
+          </Button>
         </div>
-        <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={() => signOut()}>
-          <LogOut className="size-4" />
-          Cerrar sesión
-        </Button>
-      </div>
+      )}
     </>
   );
 }
