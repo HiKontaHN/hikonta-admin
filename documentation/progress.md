@@ -1,6 +1,6 @@
 # Estado del proyecto — HiKonta Admin
 
-> Última actualización: 18 de agosto de 2026
+> Última actualización: 18 de agosto de 2026 (sesión de verificación + UI de admins)
 
 ---
 
@@ -11,9 +11,9 @@ límites/features por plan, y un resumen de uso de la base de datos (tamaño por
 registros, imágenes almacenadas). Es el panel de **mayor privilegio** de toda la plataforma — crea
 y desactiva cualquier usuario, resetea cualquier contraseña, edita cualquier suscripción.
 
-- **Repo:** `hikonta-admin` (carpeta hermana de `yelifin-sistema` y `hikonta-partners`) — con un
-  primer commit (`.gitattributes` + `.gitignore`), el resto del código está generado pero
-  **todavía no comiteado** (ver sección 6).
+- **Repo:** `hikonta-admin` (carpeta hermana de `yelifin-sistema` y `hikonta-partners`), pusheado a
+  `github.com/HiKontaHN/hikonta-admin`. El código base está comiteado (commit `2424ff4`) — ver
+  sección 6 para lo que se agregó después.
 - **Origen:** migración de `app/(dashboard)/admin/*` + `app/api/admin/*` de `yelifin-sistema` a
   repo separado — mismo patrón que ya se hizo con `hikonta-partners`.
 - **Diseño de arquitectura completo:** `database/docs/admin-panel-architecture.md` en el repo
@@ -40,16 +40,15 @@ Script en `database/admin/` del repo principal (`yelifin-sistema`):
 
 | Script | Qué hace | Estado |
 |---|---|---|
-| `01-admin-infrastructure.sql` | Crea `admins(id, user_id UNIQUE, is_active, created_at, updated_at)` + siembra automáticamente desde cualquier org cuyo dueño tenga hoy el plan `'admin'` | ⏳ **No ejecutado todavía** |
+| `01-admin-infrastructure.sql` | Crea `admins(id, user_id UNIQUE, is_active, created_at, updated_at)` + siembra automáticamente desde cualquier org cuyo dueño tenga hoy el plan `'admin'` | ✅ **Ejecutado y verificado** |
 
-Después de correrlo, verificar el sembrado:
+Verificado directo contra Neon en esta sesión: la tabla existe y tiene 1 fila sembrada
+(`is_active = TRUE`, vinculada al owner del plan `admin`). Consulta de referencia:
 ```sql
 SELECT a.id, a.is_active, u.email FROM admins a JOIN users u ON u.id = a.user_id;
 ```
-Si no encontró filas (el plan `admin` se asignó de otra forma en Neon), agregar el primero a mano:
-```sql
-INSERT INTO admins (user_id) VALUES (<user_id>);
-```
+Agregar administradores adicionales ya no requiere SQL manual — ver sección 4/5, página
+`/admins`.
 
 ---
 
@@ -66,6 +65,11 @@ app/api/admin/
   plans/                    GET + POST crear plan
   plans/[id]/                PATCH (límites) + DELETE (solo si ningún org lo usa)
   plans/[id]/features/       GET matriz de features + PUT guardar toggles
+  admins/                   GET listar + POST vincular un usuario existente como admin (nuevo,
+                             no existía en yelifin-sistema)
+  admins/[id]/                PATCH (activar/desactivar) + DELETE (quitar acceso) — ambos
+                             bloquean auto-desactivarse/auto-eliminarse y dejar el panel sin
+                             ningún admin activo
 ```
 
 Todas las rutas portadas 1:1 desde `yelifin-sistema`, cambiando únicamente la fuente de identidad
@@ -87,6 +91,8 @@ app/
                             activar/desactivar (con AlertDialog de confirmación)
     plans/                  grid de planes (CRUD) + diálogo crear/editar + confirmar borrado
     plans/[id]/              límites de uso + matriz de features por categoría (switches)
+    admins/                 tabla de administradores + diálogo "agregar por email" +
+                             activar/desactivar + eliminar (con AlertDialog de confirmación)
 ```
 
 15 componentes `components/ui/*` copiados verbatim de `yelifin-sistema` (Button, Dialog,
@@ -95,72 +101,75 @@ AlertDialog, Select, Switch, Table, Pagination, etc.). Paleta "One UI" (misma fa
 
 ---
 
-## 6. ⚠️ Nada comiteado todavía — y un archivo mal nombrado que casi se comitea
+## 6. Historial de bugs ya resueltos (sesiones anteriores)
 
-Todo el código (backend + frontend + componentes) está generado en el working tree pero **no hay
-segundo commit** — solo existe el inicial (`.gitattributes` + `.gitignore`). Hay que revisar y
-comitear.
+Quedan documentados por si algo similar reaparece en otro entorno:
 
-**Bug encontrado y corregido en esta sesión:** al correr `pnpm install`, quedó un archivo
-`local.env` (vacío) agregado al staging de git. `.gitignore` solo cubre `.env.local` exacto —
-`local.env` no matcheaba ningún patrón, así que si se llenaba con credenciales reales y se
-comiteaba así, quedaban en el historial de git. Se corrigió: `git rm --cached local.env` +
-renombrado a `.env.local` (queda ignorado correctamente). **El archivo está vacío** — falta
-llenarlo con las credenciales reales antes de poder correr el panel con datos.
-
----
-
-## 7. Bug de instalación encontrado y corregido
-
-`pnpm run dev` fallaba con `[ERR_PNPM_IGNORED_BUILDS]` (exit code 1) — pnpm bloquea por default
-los scripts `postinstall` de paquetes fuera de un allowlist (`@firebase/util`, `protobufjs`,
-`sharp` — transitivos de `firebase`/`firebase-admin`/`next`). Se agregó a `package.json`:
-
-```json
-"pnpm": {
-  "onlyBuiltDependencies": ["@firebase/util", "protobufjs", "sharp"]
-}
-```
-
-**Pendiente de confirmar:** el usuario todavía no volvió a correr `pnpm install` con este fix —
-falta verificar que `pnpm run dev` levante limpio.
+- **Archivo mal nombrado casi comiteado:** al correr `pnpm install`, quedó un `local.env` (vacío)
+  en staging de git — `.gitignore` solo cubría `.env.local` exacto. Se corrigió con
+  `git rm --cached local.env` + renombrado a `.env.local`.
+- **`[ERR_PNPM_IGNORED_BUILDS]`** al correr `pnpm run dev` — pnpm bloquea por default los scripts
+  `postinstall` fuera de un allowlist. Se agregó a `package.json`:
+  ```json
+  "pnpm": { "onlyBuiltDependencies": ["@firebase/util", "protobufjs", "sharp"] }
+  ```
 
 ---
 
-## 8. Pendiente
+## 7. Estado real verificado (sesión del 18 de agosto de 2026)
 
-- [ ] Confirmar que `pnpm install` + `pnpm run dev` levantan limpio con el fix de `onlyBuiltDependencies`
-- [ ] Llenar `.env.local` (Neon `DATABASE_URL`, Firebase client + admin SDK — mismas credenciales
-      que `yelifin-sistema`/`hikonta-partners`, ver `README.md` de este repo)
-- [ ] Ejecutar `database/admin/01-admin-infrastructure.sql` en Neon (repo `yelifin-sistema`) y
-      verificar el sembrado de `admins`
-- [ ] Probar el panel con `NEXT_PUBLIC_BYPASS_AUTH="true"` antes de probar login real
-- [ ] Correr `tsc --noEmit` / `pnpm run build` — todo el código se escribió sin poder compilarlo
-      en la sesión donde se generó (sin `node_modules` en ese entorno), así que es la primera
-      verificación real de tipos
-- [ ] Hacer el primer commit real del código (todo sigue sin comitear, ver sección 6)
-- [ ] UI de gestión de la tabla `admins` (agregar/quitar administradores) — hoy es `INSERT`/`UPDATE`
-      manual en Neon
+Todo lo siguiente se confirmó directo en esta sesión, no es solo lo que dice este documento:
+
+- ✅ Código comiteado y pusheado — commit `2424ff4` en `github.com/HiKontaHN/hikonta-admin`,
+  working tree limpio.
+- ✅ `pnpm install` corrido — `node_modules` presente, sin `ERR_PNPM_IGNORED_BUILDS`.
+- ✅ `.env.local` lleno con credenciales reales (Neon + Firebase client + Firebase admin) — **no**
+  tiene `NEXT_PUBLIC_BYPASS_AUTH`, así que el panel corre con login real de Firebase por defecto.
+- ✅ `database/admin/01-admin-infrastructure.sql` **ya corrió en Neon** — se consultó la tabla
+  directo: 1 fila en `admins`, `is_active = TRUE`, vinculada al owner del plan `admin` original.
+- ✅ `tsc --noEmit` y `next build` (producción, Turbopack) — ambos limpios, sin errores.
+
+Es decir: los tres bloqueadores que quedaban pendientes en la versión anterior de este documento
+(comitear, llenar `.env.local`, correr el SQL) ya estaban resueltos antes de esta sesión — solo
+faltaba actualizar este archivo para que no generara confusión.
+
+---
+
+## 8. UI de gestión de `admins` (agregada en esta sesión)
+
+Implementada la página `/admins` + rutas `api/admin/admins` y `api/admin/admins/[id]` (ver
+secciones 4 y 5). Reemplaza el `INSERT`/`UPDATE` manual en Neon que quedaba como único mecanismo.
+
+Reglas de negocio en el backend (no solo deshabilitado en el botón — también validado server-side):
+- Agregar un admin requiere que el email ya exista en `users` — no da de alta cuentas nuevas.
+- Un admin no puede desactivarse ni eliminarse a sí mismo.
+- No se puede desactivar ni eliminar al último administrador activo (evita quedar sin acceso).
+
+---
+
+## 9. Pendiente
+
 - [ ] Deploy: proyecto en Vercel + dominio `admin.hikonta.com` + variables de entorno
 - [ ] Evaluar 2FA o allowlist de IP antes de producción (es el panel con capacidad de resetear
       cualquier contraseña de la plataforma)
-- [ ] Decidir si se apaga `/admin` en `yelifin-sistema` una vez validado esto en producción
+- [ ] Decidir si se apaga `/admin` en `yelifin-sistema` una vez validado esto en producción —
+      **decisión pospuesta a propósito**, `/admin` en `yelifin-sistema` sigue siendo el fallback
+      hasta validar `hikonta-admin` en producción real
+- [ ] Probar un login real de punta a punta (Firebase → `/api/admin/me` → panel) — se verificó que
+      el código y la infraestructura están listos, pero no se hizo la prueba interactiva de login
+      en esta sesión
 
 ---
 
-## 9. Cómo retomar
+## 10. Cómo retomar
 
 ```bash
 cd hikonta-admin
-pnpm install        # ya no debería tirar ERR_PNPM_IGNORED_BUILDS
+pnpm install
 pnpm run dev
 ```
 
-Antes de que el panel muestre datos reales, faltan dos cosas fuera de este repo:
-1. Llenar `.env.local` (está vacío, ver sección 8).
-2. Correr `database/admin/01-admin-infrastructure.sql` contra Neon desde `yelifin-sistema` (ver
-   `database/docs/admin-panel-architecture.md` en ese repo para el detalle completo).
-
-Con `NEXT_PUBLIC_BYPASS_AUTH="true"` en `.env.local` se puede ver el panel sin loguearse (usa el
-admin `id=1` — necesita que exista esa fila en `admins`, si no, los endpoints devuelven listas
-vacías en vez de fallar).
+`.env.local` ya está lleno y `database/admin/01-admin-infrastructure.sql` ya corrió en Neon — el
+panel debería mostrar datos reales con un login de Firebase normal (la cuenta vinculada en
+`admins`). `NEXT_PUBLIC_BYPASS_AUTH` no está seteado, así que no hay bypass activo por defecto;
+para probar sin loguearse hay que agregarlo a mano a `.env.local` (ver README.md).

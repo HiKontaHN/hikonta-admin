@@ -117,6 +117,15 @@ export type PlanFeatureRow = {
   is_enabled: boolean;
 };
 
+export type AdminAdminRow = {
+  id: number;
+  is_active: boolean;
+  created_at: string;
+  user_id: number;
+  email: string;
+  display_name: string | null;
+};
+
 export type AdminStats = {
   total_users: number;
   active_users: number;
@@ -343,6 +352,66 @@ export type CreateUserInput = {
   plan_id?: number;
   email_verified?: boolean;
 };
+
+// ── Administradores (tabla `admins`) ────────────────────────────────────
+
+export function useAdminAdmins() {
+  const { token } = useAuth();
+  const authFetch = useAuthFetch();
+  const { data, isLoading, error, mutate } = useSWR(
+    token ? "/api/admin/admins" : null,
+    (u: string) => authFetch(u),
+    { revalidateOnFocus: false, dedupingInterval: 15_000 }
+  );
+  return {
+    admins: (data?.data ?? []) as AdminAdminRow[],
+    isLoading,
+    error: (error as any)?.message ?? null,
+    mutate,
+  };
+}
+
+export function useAdminAddAdmin() {
+  const authFetch = useAuthFetch();
+  const [isAdding, setIsAdding] = useState(false);
+  const addAdmin = async (email: string) => {
+    setIsAdding(true);
+    try {
+      return await authFetch("/api/admin/admins", { method: "POST", body: JSON.stringify({ email }) });
+    } finally {
+      setIsAdding(false);
+    }
+  };
+  return { addAdmin, isAdding };
+}
+
+export function useAdminUpdateAdmin() {
+  const authFetch = useAuthFetch();
+  const [isSaving, setIsSaving] = useState(false);
+  const updateAdmin = async (id: number, is_active: boolean) => {
+    setIsSaving(true);
+    try {
+      return await authFetch(`/api/admin/admins/${id}`, { method: "PATCH", body: JSON.stringify({ is_active }) });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  return { updateAdmin, isSaving };
+}
+
+export function useAdminRemoveAdmin() {
+  const authFetch = useAuthFetch();
+  const [isRemoving, setIsRemoving] = useState(false);
+  const removeAdmin = async (id: number) => {
+    setIsRemoving(true);
+    try {
+      return await authFetch(`/api/admin/admins/${id}`, { method: "DELETE" });
+    } finally {
+      setIsRemoving(false);
+    }
+  };
+  return { removeAdmin, isRemoving };
+}
 
 export function useAdminCreateUser() {
   const authFetch = useAuthFetch();

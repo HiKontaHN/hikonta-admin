@@ -96,6 +96,8 @@ app/
                                 editar suscripción, activar/desactivar
     plans/                     lista + detalle ([id]) — CRUD de planes, límites, matriz de
                                 features por categoría
+    admins/                    gestión de la tabla `admins` — agregar por email, activar/
+                                desactivar, eliminar
   api/admin/
     me/                        identidad del administrador autenticado
     stats/                     conteos de usuarios/suscripciones + planes con más usuarios
@@ -106,6 +108,8 @@ app/
     plans/                     lista + POST crear plan
     plans/[id]/                PATCH (límites) + DELETE (solo si ningún org lo usa)
     plans/[id]/features/       GET matriz de features + PUT guardar toggles
+    admins/                    GET listar + POST vincular usuario existente como admin
+    admins/[id]/                PATCH (activar/desactivar) + DELETE (quitar acceso)
 lib/
   auth.ts                      verifyAdmin() (contra `admins`) + ensureOrgExists() (portado de
                                 yelifin-sistema, usado al crear un usuario nuevo desde el panel)
@@ -118,8 +122,10 @@ proxy.ts                       middleware (convención Next 16) — protege todo
 - Es el único panel con capacidad de resetear la contraseña de cualquier usuario de la
   plataforma y de ver el tamaño/contenido agregado de toda la base de datos — tratarlo como
   god-mode.
-- Sin auto-registro: un administrador se agrega a mano en Neon
-  (`INSERT INTO admins (user_id) VALUES (<id>)`).
+- Sin auto-registro: un administrador se agrega desde `/admins` (requiere ya ser admin) — el email
+  tiene que corresponder a un usuario existente de HiKonta, nunca crea una cuenta nueva. El primer
+  administrador de un ambiente nuevo sí se agrega a mano en Neon
+  (`INSERT INTO admins (user_id) VALUES (<id>)`), porque hace falta uno para poder entrar y usar la UI.
 - Pendiente evaluar: 2FA o allowlist de IP antes de desplegar a producción (ver
   `database/docs/admin-panel-architecture.md` en el repo principal, sección "Pendiente").
 
@@ -128,13 +134,16 @@ proxy.ts                       middleware (convención Next 16) — protege todo
 1. Nuevo proyecto en Vercel apuntando a este repo.
 2. Dominio: `admin.hikonta.com` (agregar CNAME en el DNS de `hikonta.com`).
 3. Env vars en Vercel: las mismas de `.env.local` (Settings → Environment Variables).
-4. Confirmar que `database/admin/01-admin-infrastructure.sql` ya corrió en Neon y que el sembrado
-   encontró al menos un admin (`SELECT * FROM admins;`) — si no, agregar el primero a mano.
-5. Decidir si se apaga `/admin` en `yelifin-sistema` una vez validado esto en producción.
 
-## Pendiente (no migrado en esta sesión)
+`database/admin/01-admin-infrastructure.sql` ya corrió en Neon — el sembrado encontró un admin
+(ver `documentation/progress.md`, sección 7).
 
-- UI de gestión de la propia tabla `admins` (agregar/quitar administradores) — hoy es un
-  `INSERT`/`UPDATE` manual en Neon.
-- Filtros adicionales, exportar a Excel (no existían tampoco en las páginas originales de
-  `yelifin-sistema`).
+## Pendiente
+
+- Deploy en Vercel + dominio `admin.hikonta.com`.
+- Evaluar 2FA o allowlist de IP antes de producción.
+- Decidir si se apaga `/admin` en `yelifin-sistema` una vez validado esto en producción real.
+
+## No migrado (no existía en las páginas originales de `yelifin-sistema`)
+
+- Filtros adicionales, exportar a Excel.
