@@ -82,7 +82,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { org_id, amount_usd, months_purchased, provider, currency, receipt_url } = await request.json();
+    const {
+      org_id, amount_usd, months_purchased, provider, currency, receipt_url,
+      paid_by_partner_id,
+    } = await request.json();
 
     const orgId   = Number(org_id);
     const amount  = Number(amount_usd);
@@ -98,11 +101,32 @@ export async function POST(request: NextRequest) {
     const [org] = await sql`SELECT id FROM organizations WHERE id = ${orgId}`;
     if (!org) return createErrorResponse("Organización no encontrada", 404);
 
+    // Patrocinio de partner — opcional, NULL por defecto (pago propio de la
+    // org). Requiere que el partner esté vinculado a esta org
+    // (partner_organizations); si no, un admin podría "patrocinar" a nombre
+    // de un partner ajeno a la organización sin querer. Cuando el
+    // patrocinio del partner se acaba, el siguiente pago que registre la
+    // org por su cuenta simplemente no manda paid_by_partner_id — no hay
+    // ningún estado global "esta org está patrocinada" que arrastrar, cada
+    // pago es independiente, así que nunca se le sigue contando al partner
+    // sin que un admin lo marque explícitamente en ESE pago puntual.
+    let partnerId: number | null = null;
+    if (paid_by_partner_id) {
+      partnerId = Number(paid_by_partner_id);
+      const [link] = await sql`
+        SELECT id FROM partner_organizations WHERE partner_id = ${partnerId} AND org_id = ${orgId}
+      `;
+      if (!link) {
+        return createErrorResponse("Ese partner no está vinculado a esta organización — vinculalo primero desde Partners", 400);
+      }
+    }
+
     const { payment, newPeriodEnd } = await applySubscriptionPayment(orgId, months, {
       amountUsd: amount,
       currency: currency || "USD",
       provider: provider || "MANUAL",
       receiptUrl: receipt_url || null,
+      paidByPartnerId: partnerId,
     });
 
     return Response.json({ data: payment, newPeriodEnd }, { status: 201 });

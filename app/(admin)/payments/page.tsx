@@ -4,7 +4,7 @@
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
-  useAdminPayments, useAdminRegisterPayment, AdminPayment,
+  useAdminPayments, useAdminRegisterPayment, useAdminOrgPartners, AdminPayment,
 } from "@/hooks/swr/use-admin";
 import { AdminOrgSearchResult } from "@/hooks/swr/use-admin";
 import { OrgPicker } from "@/components/shared/org-picker";
@@ -56,8 +56,13 @@ function RegisterPaymentDialog({
   const [months, setMonths] = useState("1");
   const [provider, setProvider] = useState("MANUAL");
   const [receiptUrl, setReceiptUrl] = useState("");
+  const [partnerId, setPartnerId] = useState<string>("");
 
-  const reset = () => { setOrg(null); setAmount("0"); setMonths("1"); setProvider("MANUAL"); setReceiptUrl(""); };
+  const { orgPartners } = useAdminOrgPartners(org?.id ?? null);
+
+  const reset = () => {
+    setOrg(null); setAmount("0"); setMonths("1"); setProvider("MANUAL"); setReceiptUrl(""); setPartnerId("");
+  };
   const handleClose = () => { reset(); onClose(); };
 
   const handleSubmit = async () => {
@@ -74,6 +79,7 @@ function RegisterPaymentDialog({
         months_purchased: monthsNum,
         provider: provider as "MANUAL" | "STRIPE" | "PAYPAL",
         receipt_url: receiptUrl.trim() || undefined,
+        paid_by_partner_id: partnerId ? Number(partnerId) : undefined,
       });
       toast.success(`Pago registrado — suscripción de ${org.name} extendida`);
       onRegistered();
@@ -93,8 +99,28 @@ function RegisterPaymentDialog({
         <div className="space-y-4 py-1">
           <div className="space-y-1.5">
             <Label>Organización</Label>
-            <OrgPicker selected={org} onSelect={setOrg} />
+            <OrgPicker selected={org} onSelect={(o) => { setOrg(o); setPartnerId(""); }} />
           </div>
+
+          {org && orgPartners.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Patrocinado por (opcional)</Label>
+              <Select value={partnerId || "none"} onValueChange={(v) => setPartnerId(v === "none" ? "" : v)} disabled={isSaving}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Ninguno — paga la propia organización</SelectItem>
+                  {orgPartners.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Solo marcá esto si el partner efectivamente pagó este período — no queda ningún
+                estado "patrocinado" en la org, es por pago. El próximo pago que registres sin
+                elegir partner no se le va a contar a nadie más que a la propia organización.
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

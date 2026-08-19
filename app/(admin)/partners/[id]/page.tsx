@@ -225,6 +225,7 @@ export default function AdminPartnerDetailPage() {
           <TableHeader>
             <TableRow className="bg-muted/30">
               <TableHead>Organización</TableHead>
+              <TableHead>Patrocinio</TableHead>
               <TableHead>Comparte finanzas</TableHead>
               <TableHead>Vinculada</TableHead>
               <TableHead className="w-16" />
@@ -233,7 +234,7 @@ export default function AdminPartnerDetailPage() {
           <TableBody>
             {organizations.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-12 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
                   <Building2 className="mx-auto mb-2 size-8 text-muted-foreground/30" />
                   Sin organizaciones vinculadas todavía
                 </TableCell>
@@ -244,6 +245,20 @@ export default function AdminPartnerDetailPage() {
                   <TableCell>
                     <p className="text-sm font-medium">{link.org_name}</p>
                     <p className="text-xs text-muted-foreground">{link.owner_email}</p>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {link.months_sponsored > 0 ? (
+                      <>
+                        <p className="font-medium">{link.months_sponsored} mes{link.months_sponsored !== 1 ? "es" : ""} pagados</p>
+                        {link.sponsored_until && (
+                          <p className="text-muted-foreground" suppressHydrationWarning>
+                            cubierto hasta {new Date(link.sponsored_until).toLocaleDateString("es-HN", { day: "numeric", month: "short", year: "numeric" })}
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Sin pagos patrocinados</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Switch checked={link.share_financials} onCheckedChange={() => handleToggleShare(link.org_id, link.share_financials)} />

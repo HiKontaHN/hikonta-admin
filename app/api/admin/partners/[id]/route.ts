@@ -24,14 +24,26 @@ export async function GET(request: NextRequest, { params }: Params) {
     `;
     if (!partner) return createErrorResponse("Partner no encontrado", 404);
 
+    // months_sponsored / sponsored_until — de subscription_payments donde
+    // ESTE partner pagó puntualmente (paid_by_partner_id), no un estado
+    // guardado en el vínculo. Si la org sigue pagando por su cuenta
+    // después (pagos con paid_by_partner_id = NULL), esos no suman acá —
+    // cada pago se atribuye por separado, nunca se hereda.
     const organizations = await sql`
       SELECT
         po.id AS link_id, po.org_id, po.share_financials, po.linked_at,
         o.name AS org_name, o.currency,
-        ou.email AS owner_email
+        ou.email AS owner_email,
+        COALESCE(sp.months_sponsored, 0)::int AS months_sponsored,
+        sp.sponsored_until
       FROM partner_organizations po
       JOIN organizations o ON o.id = po.org_id
       JOIN users ou         ON ou.id = o.owner_user_id
+      LEFT JOIN LATERAL (
+        SELECT SUM(months_purchased) AS months_sponsored, MAX(covers_period_end) AS sponsored_until
+        FROM subscription_payments
+        WHERE org_id = po.org_id AND paid_by_partner_id = po.partner_id
+      ) sp ON TRUE
       WHERE po.partner_id = ${id}
       ORDER BY po.linked_at DESC
     `;

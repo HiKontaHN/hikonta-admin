@@ -559,7 +559,31 @@ export type RegisterPaymentInput = {
   provider?: "MANUAL" | "STRIPE" | "PAYPAL";
   currency?: string;
   receipt_url?: string;
+  // Opcional — solo si un partner vinculado a esta org está patrocinando
+  // este pago puntual. NULL/ausente = paga la propia org. No hay estado
+  // "esta org está patrocinada" que arrastrar entre pagos: cada uno se
+  // marca aparte, así que un pago propio después de que se acabe el
+  // patrocinio nunca hereda el partner por accidente.
+  paid_by_partner_id?: number;
 };
+
+// Partners vinculados a una org — para el selector "Patrocinado por" al
+// registrar un pago. Solo puede elegirse uno ya vinculado (ver Partners).
+export type AdminOrgPartner = { id: number; name: string };
+
+export function useAdminOrgPartners(orgId: number | null) {
+  const { token } = useAuth();
+  const authFetch = useAuthFetch();
+  const { data, isLoading } = useSWR(
+    token && orgId ? `/api/admin/organizations/${orgId}/partners` : null,
+    (u: string) => authFetch(u),
+    { revalidateOnFocus: false }
+  );
+  return {
+    orgPartners: (data?.data ?? []) as AdminOrgPartner[],
+    isLoading,
+  };
+}
 
 export function useAdminRegisterPayment() {
   const authFetch = useAuthFetch();
@@ -597,6 +621,11 @@ export type AdminPartnerOrgLink = {
   org_name: string;
   currency: string;
   owner_email: string;
+  // De subscription_payments donde este partner pagó puntualmente — no un
+  // estado guardado en el vínculo. 0 / null si nunca patrocinó un pago
+  // (aunque la org sí esté vinculada para monitoreo).
+  months_sponsored: number;
+  sponsored_until: string | null;
 };
 
 export function useAdminPartners() {
