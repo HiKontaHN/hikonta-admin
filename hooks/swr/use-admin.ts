@@ -721,7 +721,10 @@ export function useAdminDeletePartner() {
 
 export type SponsorBatchInput = {
   org_ids: number[];
-  amount_usd: number;
+  // Sin monto libre — se elige un plan (solo pagos, price_usd > 0) y el
+  // backend calcula amount_usd = price_usd × months_purchased, y deja a
+  // cada org efectivamente en ese plan.
+  plan_id: number;
   months_purchased: number;
   provider?: "MANUAL" | "STRIPE" | "PAYPAL";
   currency?: string;

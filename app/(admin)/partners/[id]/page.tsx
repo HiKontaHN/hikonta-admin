@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   useAdminPartner, useAdminUpdatePartner, useAdminLinkPartnerOrg,
-  useAdminUpdatePartnerOrgLink, useAdminUnlinkPartnerOrg, useAdminBulkSponsor,
+  useAdminUpdatePartnerOrgLink, useAdminUnlinkPartnerOrg, useAdminBulkSponsor, useAdminPlans,
   AdminOrgSearchResult, SponsorBatchResultRow,
 } from "@/hooks/swr/use-admin";
 import { OrgPicker, MultiOrgPicker } from "@/components/shared/org-picker";
@@ -107,26 +107,31 @@ function SponsorBatchDialog({
   partnerId, open, onClose, onDone,
 }: { partnerId: number; open: boolean; onClose: () => void; onDone: () => void }) {
   const { bulkSponsor, isSponsoring } = useAdminBulkSponsor(partnerId);
+  const { plans, isLoading: plansLoading } = useAdminPlans();
+  const paidPlans = plans.filter((p) => Number(p.price_usd) > 0);
+
   const [orgs, setOrgs] = useState<AdminOrgSearchResult[]>([]);
-  const [amount, setAmount] = useState("0");
+  const [planId, setPlanId] = useState("");
   const [months, setMonths] = useState("3");
   const [provider, setProvider] = useState("MANUAL");
   const [results, setResults] = useState<SponsorBatchResultRow[] | null>(null);
 
-  const reset = () => { setOrgs([]); setAmount("0"); setMonths("3"); setProvider("MANUAL"); setResults(null); };
+  const selectedPlan = paidPlans.find((p) => String(p.id) === planId) ?? null;
+  const monthsNum = Number(months) || 0;
+  const totalPerOrg = selectedPlan ? Number(selectedPlan.price_usd) * monthsNum : 0;
+
+  const reset = () => { setOrgs([]); setPlanId(""); setMonths("3"); setProvider("MANUAL"); setResults(null); };
   const handleClose = () => { reset(); onClose(); };
 
   const handleSubmit = async () => {
     if (orgs.length === 0) { toast.error("Agregá al menos una organización"); return; }
-    const amountNum = Number(amount);
-    const monthsNum = Number(months);
-    if (!(amountNum >= 0)) { toast.error("El monto por organización debe ser mayor o igual a 0"); return; }
+    if (!selectedPlan) { toast.error("Elegí un plan"); return; }
     if (!(monthsNum >= 1)) { toast.error("Los meses deben ser al menos 1"); return; }
 
     try {
       const res = await bulkSponsor({
         org_ids: orgs.map((o) => o.id),
-        amount_usd: amountNum,
+        plan_id: selectedPlan.id,
         months_purchased: monthsNum,
         provider: provider as "MANUAL" | "STRIPE" | "PAYPAL",
       });
@@ -179,14 +184,35 @@ function SponsorBatchDialog({
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Monto por org. (USD)</Label>
-                  <Input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isSponsoring} />
+                  <Label>Plan</Label>
+                  <Select value={planId} onValueChange={setPlanId} disabled={isSponsoring || plansLoading}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={plansLoading ? "Cargando…" : "Elegir plan"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {paidPlans.length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">No hay planes pagos configurados</div>
+                      ) : (
+                        paidPlans.map((p) => (
+                          <SelectItem key={p.id} value={String(p.id)}>{p.name} · ${Number(p.price_usd).toFixed(2)}/mes</SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Meses cubiertos</Label>
                   <Input type="number" min="1" step="1" value={months} onChange={(e) => setMonths(e.target.value)} disabled={isSponsoring} />
                 </div>
               </div>
+
+              {selectedPlan && (
+                <p className="text-xs text-muted-foreground">
+                  Monto por organización: <span className="font-medium text-foreground">${totalPerOrg.toFixed(2)}</span>
+                  {" "}(${Number(selectedPlan.price_usd).toFixed(2)} × {monthsNum} mes{monthsNum !== 1 ? "es" : ""})
+                  — {orgs.length > 0 && <>total del lote: <span className="font-medium text-foreground">${(totalPerOrg * orgs.length).toFixed(2)}</span></>}
+                </p>
+              )}
 
               <div className="space-y-1.5">
                 <Label>Método</Label>
@@ -201,15 +227,15 @@ function SponsorBatchDialog({
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Cada organización queda con un pago independiente a su nombre — no hay ningún saldo
-                ni crédito compartido. Cuando se acabe este período, si la organización paga por su
-                cuenta, ese pago nuevo no se le va a contar a este partner.
+                Cada organización queda con un pago independiente a su nombre, en el plan elegido —
+                no hay ningún saldo ni crédito compartido. Cuando se acabe este período, si la
+                organización paga por su cuenta, ese pago nuevo no se le va a contar a este partner.
               </p>
             </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={handleClose} disabled={isSponsoring}>Cancelar</Button>
-              <Button onClick={handleSubmit} disabled={isSponsoring || orgs.length === 0} className="gap-2">
+              <Button onClick={handleSubmit} disabled={isSponsoring || orgs.length === 0 || !selectedPlan} className="gap-2">
                 {isSponsoring ? <Loader2 className="size-3.5 animate-spin" /> : <Handshake className="size-3.5" />}
                 Patrocinar {orgs.length > 0 && `(${orgs.length})`}
               </Button>

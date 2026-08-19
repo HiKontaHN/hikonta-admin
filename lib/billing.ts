@@ -13,6 +13,10 @@ export type ApplyPaymentOpts = {
   provider?: "MANUAL" | "STRIPE" | "PAYPAL";
   paidByPartnerId?: number | null;
   receiptUrl?: string | null;
+  // Si viene, además de extender fechas deja a la org en ESE plan — usado
+  // cuando el pago vino de elegir un plan puntual (ver "Patrocinar
+  // organizaciones"), no solo un monto libre.
+  planId?: number | null;
 };
 
 export async function applySubscriptionPayment(
@@ -43,6 +47,7 @@ export async function applySubscriptionPayment(
       status                = 'ACTIVE',
       current_period_start  = ${expired ? start.toISOString() : sql`current_period_start`},
       current_period_end    = ${end.toISOString()},
+      plan_id                = ${opts.planId ?? sql`plan_id`},
       updated_at             = NOW()
     WHERE id = ${orgSub.id}
   `;
