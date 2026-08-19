@@ -16,6 +16,16 @@ export async function GET(request: NextRequest) {
     const limit  = 20;
     const offset = (page - 1) * limit;
 
+    // El join anterior resolvía la org SOLO por `organizations.owner_user_id
+    // = u.id` — cualquier usuario agregado por un dueño como miembro de
+    // equipo (cajero, bodeguero, etc. — ver /settings/members en
+    // yelifin-sistema) nunca es dueño de ninguna organización, así que
+    // Plan/Estado le salían siempre en blanco. La membresía real vive en
+    // `organization_members`, no en `owner_user_id` (eso solo identifica
+    // quién fundó la org). Se resuelve con un LATERAL: la membresía activa
+    // más antigua del usuario — mismo criterio que usa `verifyAuth()` en
+    // yelifin-sistema (`ORDER BY joined_at ASC LIMIT 1`) para decidir "a
+    // qué org pertenece este usuario" cuando podría tener más de una.
     const users = await sql`
       SELECT
         u.id,
@@ -27,6 +37,8 @@ export async function GET(request: NextRequest) {
         up.business_name,
         up.business_logo_url,
         o.currency,
+        r.name                  AS role_name,
+        r.is_owner,
         os.id                   AS subscription_id,
         os.status               AS subscription_status,
         os.trial_end_date,
@@ -37,10 +49,18 @@ export async function GET(request: NextRequest) {
         sp.slug                 AS plan_slug,
         sp.price_usd
       FROM users u
-      LEFT JOIN user_profile      up ON up.user_id      = u.id
-      LEFT JOIN organizations     o  ON o.owner_user_id = u.id
-      LEFT JOIN org_subscriptions os ON os.org_id       = o.id
-      LEFT JOIN subscription_plans sp ON sp.id          = os.plan_id
+      LEFT JOIN user_profile up ON up.user_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT om.org_id, om.role_id
+        FROM organization_members om
+        WHERE om.user_id = u.id AND om.is_active = TRUE
+        ORDER BY om.joined_at ASC
+        LIMIT 1
+      ) om ON TRUE
+      LEFT JOIN organizations      o  ON o.id  = om.org_id
+      LEFT JOIN org_roles          r  ON r.id  = om.role_id
+      LEFT JOIN org_subscriptions  os ON os.org_id = o.id
+      LEFT JOIN subscription_plans sp ON sp.id = os.plan_id
       WHERE (
         ${search} = ''
         OR u.email           ILIKE ${'%' + search + '%'}
@@ -55,9 +75,16 @@ export async function GET(request: NextRequest) {
     const [{ total }] = await sql`
       SELECT COUNT(DISTINCT u.id)::int AS total
       FROM users u
-      LEFT JOIN user_profile      up ON up.user_id      = u.id
-      LEFT JOIN organizations     o  ON o.owner_user_id = u.id
-      LEFT JOIN org_subscriptions os ON os.org_id       = o.id
+      LEFT JOIN user_profile up ON up.user_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT om.org_id
+        FROM organization_members om
+        WHERE om.user_id = u.id AND om.is_active = TRUE
+        ORDER BY om.joined_at ASC
+        LIMIT 1
+      ) om ON TRUE
+      LEFT JOIN organizations     o  ON o.id = om.org_id
+      LEFT JOIN org_subscriptions os ON os.org_id = o.id
       WHERE (
         ${search} = ''
         OR u.email          ILIKE ${'%' + search + '%'}

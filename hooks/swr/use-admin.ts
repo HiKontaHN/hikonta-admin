@@ -38,6 +38,11 @@ export type AdminUserRow = {
   business_name: string | null;
   business_logo_url: string | null;
   currency: string | null;
+  // Rol dentro de su organización — puede ser el dueño o un miembro de
+  // equipo (cajero, bodeguero, etc., agregado desde /settings/members en
+  // yelifin-sistema). `null` si el usuario no pertenece a ninguna org.
+  role_name: string | null;
+  is_owner: boolean | null;
   subscription_id: number | null;
   subscription_status: string | null;
   trial_end_date: string | null;
@@ -51,6 +56,8 @@ export type AdminUserRow = {
 };
 
 export type AdminUserDetail = AdminUserRow & {
+  org_id: number | null;
+  org_name: string | null;
   photo_url: string | null;
   timezone: string;
   locale: string;

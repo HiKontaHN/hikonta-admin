@@ -16,6 +16,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     const userId = Number(id);
     if (isNaN(userId)) return createErrorResponse("ID inválido", 400);
 
+    // Mismo fix que GET /api/admin/users — resolver la org por membresía
+    // real (`organization_members`), no por `owner_user_id`, para que un
+    // miembro de equipo (no dueño) también muestre su plan/suscripción.
     const [user] = await sql`
       SELECT
         u.id,
@@ -32,6 +35,9 @@ export async function GET(request: NextRequest, { params }: Params) {
         up.locale,
         up.onboarding_completed,
         o.id                         AS org_id,
+        o.name                       AS org_name,
+        r.name                       AS role_name,
+        r.is_owner,
         os.id                        AS subscription_id,
         os.status                    AS subscription_status,
         os.trial_start_date,
@@ -50,10 +56,18 @@ export async function GET(request: NextRequest, { params }: Params) {
         sp.max_products,
         sp.max_sales_per_month
       FROM users u
-      LEFT JOIN user_profile       up ON up.user_id      = u.id
-      LEFT JOIN organizations       o ON o.owner_user_id = u.id
-      LEFT JOIN org_subscriptions  os ON os.org_id       = o.id
-      LEFT JOIN subscription_plans sp ON sp.id           = os.plan_id
+      LEFT JOIN user_profile up ON up.user_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT om.org_id, om.role_id
+        FROM organization_members om
+        WHERE om.user_id = u.id AND om.is_active = TRUE
+        ORDER BY om.joined_at ASC
+        LIMIT 1
+      ) om ON TRUE
+      LEFT JOIN organizations      o  ON o.id = om.org_id
+      LEFT JOIN org_roles          r  ON r.id = om.role_id
+      LEFT JOIN org_subscriptions  os ON os.org_id = o.id
+      LEFT JOIN subscription_plans sp ON sp.id = os.plan_id
       WHERE u.id = ${userId}
       LIMIT 1
     `;
@@ -122,11 +136,20 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return createErrorResponse("No podés desactivar tu propia cuenta", 400);
     }
 
-    // Obtener firebase_uid y org_id del usuario
+    // Obtener firebase_uid y org_id del usuario — por membresía real, no
+    // por owner_user_id (ver nota en GET de esta misma ruta). Esto también
+    // hace que editar la suscripción funcione viendo a un miembro de
+    // equipo, no solo al dueño: la suscripción es de la org, no de quién
+    // la fundó.
     const [userData] = await sql`
-      SELECT u.firebase_uid, o.id AS org_id
+      SELECT u.firebase_uid, om.org_id
       FROM users u
-      LEFT JOIN organizations o ON o.owner_user_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT org_id FROM organization_members
+        WHERE user_id = u.id AND is_active = TRUE
+        ORDER BY joined_at ASC
+        LIMIT 1
+      ) om ON TRUE
       WHERE u.id = ${userId}
     `;
     if (!userData) return createErrorResponse("Usuario no encontrado", 404);

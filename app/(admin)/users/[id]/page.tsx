@@ -24,7 +24,7 @@ import {
   ArrowLeft, Building2, Mail, Calendar, ShoppingCart,
   Package, ReceiptText, Crown, AlertTriangle, CheckCircle2,
   XCircle, Loader2, Save, Clock, RefreshCw, Database, Image,
-  KeyRound, Eye, EyeOff,
+  KeyRound, Eye, EyeOff, Users2,
 } from "lucide-react";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -152,6 +152,15 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
             <InfoRow icon={<Mail className="size-3.5"/>} label="Email" value={user.email} />
             {user.business_name && <InfoRow icon={<Building2 className="size-3.5"/>} label="Negocio" value={user.business_name} />}
             {user.display_name  && <InfoRow icon={<Building2 className="size-3.5"/>} label="Nombre" value={user.display_name} />}
+            {user.org_name ? (
+              <InfoRow
+                icon={<Users2 className="size-3.5"/>}
+                label="Rol"
+                value={user.is_owner ? `Dueño de ${user.org_name}` : `Miembro de ${user.org_name} · ${user.role_name}`}
+              />
+            ) : (
+              <InfoRow icon={<Users2 className="size-3.5"/>} label="Rol" value="No pertenece a ninguna organización" />
+            )}
             <InfoRow icon={<Calendar className="size-3.5"/>} label="Registrado"
               value={new Date(user.created_at).toLocaleDateString("es-HN", { day: "numeric", month: "long", year: "numeric" })}
             />
@@ -237,6 +246,12 @@ export default function AdminUserDetailPage({ params }: { params: Promise<{ id: 
           <CardTitle className="text-xs font-medium text-muted-foreground">Editar suscripción</CardTitle>
         </CardHeader>
         <CardContent className="px-3.5 pb-3 space-y-3">
+          {user.org_name && user.is_owner === false && (
+            <p className="text-xs text-muted-foreground bg-muted/50 rounded-md px-2.5 py-2">
+              {displayName} es miembro de <strong>{user.org_name}</strong>, no el dueño — esto edita
+              la suscripción de toda la organización, no solo la de esta persona.
+            </p>
+          )}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label className="text-xs">Plan</Label>

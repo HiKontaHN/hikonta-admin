@@ -327,6 +327,7 @@ export default function AdminUsersPage() {
           <TableHeader>
             <TableRow className="bg-muted/30">
               <TableHead>Usuario / Negocio</TableHead>
+              <TableHead>Rol</TableHead>
               <TableHead>Plan</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead>Activo</TableHead>
@@ -339,14 +340,14 @@ export default function AdminUsersPage() {
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  {Array.from({ length: 7 }).map((_, j) => (
+                  {Array.from({ length: 8 }).map((_, j) => (
                     <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                   ))}
                 </TableRow>
               ))
             ) : users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                   No se encontraron usuarios
                 </TableCell>
               </TableRow>
@@ -360,6 +361,13 @@ export default function AdminUsersPage() {
                   <TableCell>
                     <p className="font-medium text-sm">{u.business_name || u.display_name || "—"}</p>
                     <p className="text-xs text-muted-foreground">{u.email}</p>
+                  </TableCell>
+                  <TableCell>
+                    {u.role_name ? (
+                      <Badge variant="outline" className={u.is_owner ? "text-xs" : "text-xs bg-secondary"}>
+                        {u.is_owner ? "Dueño" : `Miembro · ${u.role_name}`}
+                      </Badge>
+                    ) : <span className="text-xs text-muted-foreground">Sin organización</span>}
                   </TableCell>
                   <TableCell className="text-sm">{u.plan_name ?? "—"}</TableCell>
                   <TableCell>
@@ -414,6 +422,11 @@ export default function AdminUsersPage() {
                       ? <CheckCircle2 className="size-3.5 text-green-600 shrink-0" />
                       : <XCircle      className="size-3.5 text-destructive shrink-0" />}
                   </div>
+                  {u.role_name && (
+                    <Badge variant="outline" className={`mt-1.5 text-xs ${!u.is_owner ? "bg-secondary" : ""}`}>
+                      {u.is_owner ? "Dueño" : `Miembro · ${u.role_name}`}
+                    </Badge>
+                  )}
                   <div className="flex items-center gap-2 mt-2">
                     <span className="text-xs text-muted-foreground">{u.plan_name ?? "Sin plan"}</span>
                     {u.subscription_status && (
