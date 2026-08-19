@@ -1,209 +1,261 @@
 # Estado del proyecto — HiKonta Admin
 
-> Última actualización: 18 de agosto de 2026 (sesión de verificación + UI de admins)
+> Última actualización: 18 de agosto de 2026
 
 ---
 
 ## 1. Qué es esto
 
-Panel de administración de plataforma para HiKonta: gestión de usuarios, planes de suscripción,
-límites/features por plan, y un resumen de uso de la base de datos (tamaño por tabla, orgs con más
-registros, imágenes almacenadas). Es el panel de **mayor privilegio** de toda la plataforma — crea
-y desactiva cualquier usuario, resetea cualquier contraseña, edita cualquier suscripción.
+Panel de administración de plataforma para HiKonta: usuarios, planes de suscripción, pagos
+(incluyendo pagos patrocinados por un partner), partners (incubadoras/aceleradoras) y sus
+organizaciones vinculadas, y un resumen de uso de la base de datos. Es el panel de **mayor
+privilegio** de toda la plataforma — crea y desactiva cualquier usuario, resetea cualquier
+contraseña, edita cualquier suscripción, extiende suscripciones registrando pagos.
 
 - **Repo:** `hikonta-admin` (carpeta hermana de `yelifin-sistema` y `hikonta-partners`), pusheado a
-  `github.com/HiKontaHN/hikonta-admin`. El código base está comiteado (commit `2424ff4`) — ver
-  sección 6 para lo que se agregó después.
+  `github.com/HiKontaHN/hikonta-admin`. **Comiteado localmente, no pusheado más allá del primer
+  commit** — confirmar con el usuario antes de `git push`.
 - **Origen:** migración de `app/(dashboard)/admin/*` + `app/api/admin/*` de `yelifin-sistema` a
   repo separado — mismo patrón que ya se hizo con `hikonta-partners`.
-- **Diseño de arquitectura completo:** `database/docs/admin-panel-architecture.md` en el repo
-  principal (`yelifin-sistema`).
+- **Diseño de arquitectura completo:** `database/docs/admin-panel-architecture.md` (panel admin) y
+  `database/docs/partner-dashboard-architecture.md` (pagos/partners) en el repo principal
+  (`yelifin-sistema`) — no se tocan, solo se les da UI/API acá.
 
 ---
 
-## 2. Decisiones de arquitectura clave
+## 2. Estado actual — resumen
+
+| Área | Estado |
+|---|---|
+| Login real (Firebase, sin bypass) | ✅ Funcionando — ver sección 8, 3 bugs encadenados corregidos |
+| Usuarios (lista, detalle, crear, resetear contraseña) | ✅ + rol real (dueño/miembro), equipo de la org, permisos del rol, actividad personal |
+| Planes (CRUD, límites, features) | ✅ Portado 1:1 desde `yelifin-sistema` |
+| Administradores (`admins`) | ✅ UI completa — agregar por email, activar/desactivar, eliminar |
+| Pagos (`subscription_payments`) | ✅ Nuevo — historial + registrar pago manual, extiende la suscripción real |
+| Partners (`partners`/`partner_organizations`) | ✅ Nuevo — CRUD + vincular orgs + patrocinio de pagos |
+| Sidebar/navbar | ✅ Portada de `yelifin-sistema` (shadcn Sidebar), colapsable, pegada (no floating) |
+| Rate limiting | ✅ Global (300/min/IP en `/api/*`) + límites extra en endpoints sensibles |
+| Deploy (Vercel + dominio) | ⬜ No hecho |
+| 2FA / allowlist de IP | ⬜ No evaluado |
+
+---
+
+## 3. Decisiones de arquitectura clave
 
 | Decisión | Por qué |
 |---|---|
 | **Repo separado**, no una ruta dentro de `yelifin-sistema` | Subdominio propio (`admin.hikonta.com`), y sobre todo: sacar el bundle de mayor privilegio del JS que se le sirve a un usuario normal |
-| **Tabla `admins` dedicada**, no `subscription.planSlug === 'admin'` | El mecanismo actual en `yelifin-sistema` es un plan de negocio usado como bandera de acceso, insertado a mano en Neon, sin script SQL versionado — mismo hallazgo que ya se hizo con partners. `admins` es el mismo patrón que `partners.user_id` |
-| `planSlug === 'admin'` **sigue vivo** en `yelifin-sistema` | No se toca — ese plan sigue usándose para el bypass de feature-gating del producto (`feature-gate.tsx`, `use-plan-guard.ts`). `admins` es exclusivamente la puerta de `hikonta-admin` |
-| **Sin `/register` público** | A diferencia de `hikonta-partners`, este panel es god-mode — un admin se vincula a mano en Neon, nunca por auto-alta |
-| **shadcn/ui + Radix + lucide-react + recharts**, no hand-rolled | A diferencia de `hikonta-partners` (panel chico, solo lectura, sin shadcn), este panel es pesado en formularios/diálogos/toggles — se portó el mismo kit que ya usaban estas pantallas en `yelifin-sistema`, componentes copiados verbatim |
-| `ensureOrgExists()` portado a `lib/auth.ts` | `POST /api/admin/users` sigue pudiendo dar de alta un negocio completo (org + rol dueño + membresía + suscripción trial), igual que hace hoy el onboarding del producto |
+| **Tabla `admins` dedicada**, no `subscription.planSlug === 'admin'` | El mecanismo actual en `yelifin-sistema` es un plan de negocio usado como bandera de acceso, insertado a mano en Neon, sin script SQL versionado. `admins` es el mismo patrón que `partners.user_id` |
+| `planSlug === 'admin'` **sigue vivo** en `yelifin-sistema` | No se toca — sigue usándose para el bypass de feature-gating del producto. `admins` es exclusivamente la puerta de `hikonta-admin` |
+| **Sin `/register` público** | Este panel es god-mode — un admin se vincula por email desde `/admins` (requiere ya ser admin), nunca por auto-alta |
+| **shadcn/ui + Radix + lucide-react + recharts**, no hand-rolled | Panel pesado en formularios/diálogos/toggles — se portó el mismo kit que ya usaban estas pantallas en `yelifin-sistema` |
+| Sidebar = el mismo sistema de `yelifin-sistema` (`components/ui/sidebar.tsx`), pero `variant="sidebar"` no `"floating"` | Pedido explícito: sidebar y navbar pegadas, sin el hueco que deja el variant floating del producto principal |
+| `paid_by_partner_id` es **por pago, no un estado en la org** | Cuando se acaba el período patrocinado y la org paga por su cuenta, ese pago nuevo simplemente no lleva partner — nunca se le arrastra al partner sin que un admin lo marque explícitamente en ESE pago |
+| `ensureOrgExists()` portado a `lib/auth.ts` | `POST /api/admin/users` sigue pudiendo dar de alta un negocio completo (org + rol dueño + membresía + suscripción trial) |
+| `lib/rate-limit.ts` portado verbatim de `yelifin-sistema` | Mismo patrón in-memory por IP, sin dependencias nuevas — consistencia entre repos |
 
 ---
 
-## 3. Base de datos — pendiente de ejecutar en Neon
+## 4. Base de datos
 
-Script en `database/admin/` del repo principal (`yelifin-sistema`):
+Todas las tablas usadas ya existen en Neon (compartida con `yelifin-sistema`/`hikonta-partners`) —
+este repo no agrega tablas propias, solo les da UI/API.
 
-| Script | Qué hace | Estado |
+| Script (en `yelifin-sistema`) | Qué hace | Estado |
 |---|---|---|
-| `01-admin-infrastructure.sql` | Crea `admins(id, user_id UNIQUE, is_active, created_at, updated_at)` + siembra automáticamente desde cualquier org cuyo dueño tenga hoy el plan `'admin'` | ✅ **Ejecutado y verificado** |
+| `database/admin/01-admin-infrastructure.sql` | Crea `admins` + siembra desde el owner del plan `'admin'` | ✅ Ejecutado y verificado (1 fila, `is_active = TRUE`) |
+| `database/partners/01-migrate-subscription-payments.sql` | Migra `subscription_payments` a `org_id`/`org_subscription_id` | ✅ Ejecutado (confirmado — la tabla ya tiene esas columnas) |
+| `database/partners/02-partners-infrastructure.sql` | Crea `partners` + `partner_organizations` + `paid_by_partner_id` | ✅ Ejecutado (1 partner de prueba, 6 orgs vinculadas) |
 
-Verificado directo contra Neon en esta sesión: la tabla existe y tiene 1 fila sembrada
-(`is_active = TRUE`, vinculada al owner del plan `admin`). Consulta de referencia:
-```sql
-SELECT a.id, a.is_active, u.email FROM admins a JOIN users u ON u.id = a.user_id;
-```
-Agregar administradores adicionales ya no requiere SQL manual — ver sección 4/5, página
-`/admins`.
+`subscription_payments` seguía **vacía** (0 filas) hasta el final de esta sesión — el schema existía
+pero nunca tuvo endpoint que la usara hasta la sección 9 de abajo.
 
 ---
 
-## 4. Backend — rutas API (este repo)
+## 5. Backend — rutas API
 
 ```
 app/api/admin/
-  me/                       GET  — identidad del admin autenticado
-  stats/                    GET  — conteos de usuarios/suscripciones + planes con más usuarios
-  storage/                  GET  — tamaño de BD, tablas más grandes, orgs con más filas, imágenes
-  users/                    GET (búsqueda+filtro+paginación) + POST crear usuario completo
-  users/[id]/               GET (detalle+actividad+almacenamiento) + PATCH (suscripción,
-                             contraseña, activo/inactivo)
-  plans/                    GET + POST crear plan
-  plans/[id]/                PATCH (límites) + DELETE (solo si ningún org lo usa)
-  plans/[id]/features/       GET matriz de features + PUT guardar toggles
-  admins/                   GET listar + POST vincular un usuario existente como admin (nuevo,
-                             no existía en yelifin-sistema)
-  admins/[id]/                PATCH (activar/desactivar) + DELETE (quitar acceso) — ambos
-                             bloquean auto-desactivarse/auto-eliminarse y dejar el panel sin
-                             ningún admin activo
+  me/                         GET  identidad del admin autenticado
+  stats/                      GET  conteos de usuarios/suscripciones + planes con más usuarios
+  storage/                    GET  tamaño de BD, tablas más grandes, orgs con más filas, imágenes
+  users/                      GET (búsqueda+filtro+paginación) + POST crear usuario completo
+  users/[id]/                 GET (detalle+actividad+equipo+permisos+actividad personal+
+                               almacenamiento) + PATCH (suscripción, contraseña, activo/inactivo)
+  plans/                      GET + POST crear plan
+  plans/[id]/                 PATCH (límites) + DELETE (solo si ningún org lo usa)
+  plans/[id]/features/        GET matriz de features + PUT guardar toggles
+  admins/                     GET listar + POST vincular usuario existente como admin
+  admins/[id]/                PATCH (activar/desactivar) + DELETE (quitar acceso)
+  organizations/               GET buscar orgs (por nombre o email del dueño) — para pickers
+  organizations/[id]/partners/ GET partners vinculados a una org — para el selector de patrocinio
+  payments/                   GET historial paginado + POST registrar pago manual
+  partners/                   GET listar (con conteo de orgs) + POST crear
+  partners/[id]/               GET detalle + orgs vinculadas (con meses patrocinados) + PATCH + DELETE
+  partners/[id]/organizations/ POST vincular una org (con share_financials)
+  partners/[id]/organizations/[orgId]/  PATCH (share_financials) + DELETE (desvincular)
 ```
 
-Todas las rutas portadas 1:1 desde `yelifin-sistema`, cambiando únicamente la fuente de identidad
-(`verifyAdmin()` contra `admins`, no `planSlug`). `lib/auth.ts` también trae `ensureOrgExists()`
-portado.
+`lib/billing.ts` — `applySubscriptionPayment(orgId, months, opts)`: extiende
+`org_subscriptions.current_period_end` (acumula si no venció, arranca desde hoy si venció) e
+inserta la fila en `subscription_payments`. Usado por `POST /api/admin/payments`.
+
+`lib/rate-limit.ts` — in-memory por IP, portado verbatim de `yelifin-sistema`.
 
 ---
 
-## 5. Frontend
+## 6. Frontend — páginas
 
 ```
 app/
-  page.tsx               redirect a /dashboard (sin landing pública)
-  login/                  login (Firebase email+password) — SIN /register
-  (admin)/                layout protegido — sidebar fija desktop / drawer mobile
-    dashboard/             stats de plataforma + gráfico de tamaño de tablas (recharts)
-    users/                 tabla con búsqueda/filtro/paginación + diálogo "crear usuario"
-    users/[id]/             info + actividad + editar suscripción + resetear contraseña +
-                            activar/desactivar (con AlertDialog de confirmación)
-    plans/                  grid de planes (CRUD) + diálogo crear/editar + confirmar borrado
-    plans/[id]/              límites de uso + matriz de features por categoría (switches)
-    admins/                 tabla de administradores + diálogo "agregar por email" +
-                             activar/desactivar + eliminar (con AlertDialog de confirmación)
+  page.tsx                  redirect a /dashboard (sin landing pública)
+  login/                     login (Firebase email+password) — SIN /register, toggle mostrar/ocultar
+  (admin)/                   layout con SidebarProvider + AppSidebar + navbar (modo oscuro + logout)
+    dashboard/                stats de plataforma + gráfico de tamaño de tablas (recharts)
+    users/                    tabla con búsqueda/filtro/paginación + columna Rol + diálogo crear
+    users/[id]/                info + rol/organización + equipo de la org + permisos del rol
+                               (solo no-dueños) + actividad personal (solo no-dueños) + editar
+                               suscripción + resetear contraseña + activar/desactivar
+    plans/                     grid de planes (CRUD) + diálogo crear/editar + confirmar borrado
+    plans/[id]/                 límites de uso + matriz de features por categoría (switches)
+    admins/                    tabla de administradores + agregar por email + activar/eliminar
+    payments/                  historial + diálogo "registrar pago" (con buscador de org y
+                               selector opcional de patrocinio por partner)
+    partners/                  grid de partners (CRUD) + conteo de orgs vinculadas
+    partners/[id]/               editar datos + orgs vinculadas (con meses patrocinados) +
+                               vincular organización + toggle share_financials
 ```
 
-15 componentes `components/ui/*` copiados verbatim de `yelifin-sistema` (Button, Dialog,
-AlertDialog, Select, Switch, Table, Pagination, etc.). Paleta "One UI" (misma familia visual que
-`hikonta-partners`) adaptada al look shadcn "new-york".
+Componentes `components/ui/*` copiados verbatim de `yelifin-sistema` (Button, Dialog, AlertDialog,
+Select, Switch, Table, Pagination, Sheet, Tooltip, Collapsible, Sidebar, etc.). Paleta "One UI"
+(misma familia visual que `hikonta-partners`) adaptada al look shadcn "new-york", con tokens
+`--sidebar*` agregados para que el sidebar portado de `yelifin-sistema` tenga su propia paleta.
+
+`components/shared/org-picker.tsx` — buscador de organizaciones con dropdown, sin dependencia
+Command/Popover (se evitó a propósito instalar una más).
 
 ---
 
-## 6. Historial de bugs ya resueltos (sesiones anteriores)
+## 7. Seguridad
 
-Quedan documentados por si algo similar reaparece en otro entorno:
-
-- **Archivo mal nombrado casi comiteado:** al correr `pnpm install`, quedó un `local.env` (vacío)
-  en staging de git — `.gitignore` solo cubría `.env.local` exacto. Se corrigió con
-  `git rm --cached local.env` + renombrado a `.env.local`.
-- **`[ERR_PNPM_IGNORED_BUILDS]`** al correr `pnpm run dev` — pnpm bloquea por default los scripts
-  `postinstall` fuera de un allowlist. Se agregó a `package.json`:
-  ```json
-  "pnpm": { "onlyBuiltDependencies": ["@firebase/util", "protobufjs", "sharp"] }
-  ```
+- Rate limiting global: 300 solicitudes/min por IP en todo `/api/*` (middleware, `proxy.ts`).
+- Límites extra sobre endpoints sensibles: reset de contraseña (10/15min), agregar admin (5/15min),
+  crear usuario (20/15min), registrar pago (30/15min).
+- `verifyAdmin()` (Firebase Admin SDK, runtime Node) es el límite de identidad real en cada API
+  route — el middleware de Edge (`proxy.ts`) **no verifica nada de verdad** (ver bug de cripto en
+  sección 8), es solo una capa de UX.
+- Pendiente: 2FA o allowlist de IP antes de producción.
 
 ---
 
-## 7. Estado real verificado (sesión del 18 de agosto de 2026)
-
-Todo lo siguiente se confirmó directo en esta sesión, no es solo lo que dice este documento:
-
-- ✅ Código comiteado y pusheado — commit `2424ff4` en `github.com/HiKontaHN/hikonta-admin`,
-  working tree limpio.
-- ✅ `pnpm install` corrido — `node_modules` presente, sin `ERR_PNPM_IGNORED_BUILDS`.
-- ✅ `.env.local` lleno con credenciales reales (Neon + Firebase client + Firebase admin) — **no**
-  tiene `NEXT_PUBLIC_BYPASS_AUTH`, así que el panel corre con login real de Firebase por defecto.
-- ✅ `database/admin/01-admin-infrastructure.sql` **ya corrió en Neon** — se consultó la tabla
-  directo: 1 fila en `admins`, `is_active = TRUE`, vinculada al owner del plan `admin` original.
-- ✅ `tsc --noEmit` y `next build` (producción, Turbopack) — ambos limpios, sin errores.
-
-Es decir: los tres bloqueadores que quedaban pendientes en la versión anterior de este documento
-(comitear, llenar `.env.local`, correr el SQL) ya estaban resueltos antes de esta sesión — solo
-faltaba actualizar este archivo para que no generara confusión.
-
----
-
-## 8. UI de gestión de `admins` (agregada en esta sesión)
-
-Implementada la página `/admins` + rutas `api/admin/admins` y `api/admin/admins/[id]` (ver
-secciones 4 y 5). Reemplaza el `INSERT`/`UPDATE` manual en Neon que quedaba como único mecanismo.
-
-Reglas de negocio en el backend (no solo deshabilitado en el botón — también validado server-side):
-- Agregar un admin requiere que el email ya exista en `users` — no da de alta cuentas nuevas.
-- Un admin no puede desactivarse ni eliminarse a sí mismo.
-- No se puede desactivar ni eliminar al último administrador activo (evita quedar sin acceso).
-
----
-
-## 9. Bugs de login encontrados y corregidos (sesión del 18 de agosto de 2026, continuación)
+## 8. Bugs de login encontrados y corregidos
 
 Al probar el login real por primera vez aparecieron tres problemas encadenados, todos en el
 cliente/middleware — el backend (`verifyAdmin()`, `firebase-admin`, JOIN contra `admins`) se probó
 aparte con un token real minteado vía `adminAuth.createCustomToken()` y funcionó perfecto desde el
-principio, así que nunca fue sospechoso.
+principio.
 
 1. **Race condition cookie vs. redirect** — `login/page.tsx` hacía `router.push("/dashboard")`
    apenas resolvía `signInWithEmailAndPassword()`, pero la cookie `token` (que lee `proxy.ts`) la
    seteaba el listener `onIdTokenChanged` de `useAuth()`, que dispara async y llegaba después.
-   Fix: setear la cookie explícitamente en `login/page.tsx` con el ID token recién obtenido, antes
-   de navegar.
+   Fix: setear la cookie explícitamente en `login/page.tsx` antes de navegar.
 2. **Router cache del cliente** — ni así alcanzaba: `router.push` podía servir una respuesta
-   cacheada de `/dashboard` de un intento anterior (rebotado a `/login` por el middleware, de antes
-   de tener cookie). Fix: `window.location.href = "/dashboard"` en vez de `router.push` — fuerza
-   una petición fresca sin caché.
+   cacheada de `/dashboard` de un intento anterior (rebotado a `/login`). Fix:
+   `window.location.href = "/dashboard"` en vez de `router.push`.
 3. **El bug real, en `proxy.ts`** — `verifyFirebaseToken()` usa
    `crypto.subtle.importKey("spki", certDer, ...)` sobre el DER de un **certificado X.509
-   completo**, que no es una estructura SPKI válida (son ASN.1 distintos) — `importKey` tira
-   `Invalid keyData` **siempre**, para cualquier token, incluso uno perfectamente válido.
-   Verificado directo: se minteó un token real y se le pasó a una copia exacta de esta función —
-   falló. **Este mismo bug de cripto existe también en `yelifin-sistema/proxy.ts`** (código casi
-   idéntico) — no se tocó ese repo, solo se confirmó ahí. La diferencia es que en
-   `yelifin-sistema`, "token inválido" hace `NextResponse.next()` (no bloquea — la seguridad real
-   vive en `verifyAdmin()`/`firebase-admin` de cada API route, sin este bug), mientras que acá
-   redirigía duro a `/login`, causando un loop infinito para cualquier usuario real. Fix: copiado
-   el patrón de `yelifin-sistema` — sin cookie o token inválido, dejar pasar. `proxy.ts` queda como
-   gate de UX, no como límite de seguridad real (ese sigue siendo `verifyAdmin()` en cada
-   `/api/admin/*`, ya verificado funcionando).
+   completo**, que no es una estructura SPKI válida — `importKey` tira `Invalid keyData` siempre,
+   para cualquier token, incluso uno válido. **Este mismo bug de cripto existe en
+   `yelifin-sistema/proxy.ts`** (no se tocó ese repo, solo se confirmó). La diferencia: ahí "token
+   inválido" hace `NextResponse.next()` (no bloquea, la seguridad real vive en `verifyAdmin()` de
+   cada API route). Acá redirigía duro a `/login`, causando un loop infinito. Fix: copiado el
+   patrón de `yelifin-sistema` — sin cookie o token inválido, dejar pasar.
 
 **Pendiente relacionado, no resuelto:** el import SPKI-sobre-X.509 sigue roto en ambos repos — el
-middleware nunca hace una verificación de firma real, solo pasa o no según haya cookie. Si se
-quiere que el gate de Edge verifique de verdad (no solo delegar todo a las API routes), hay que
-cambiar a un endpoint que devuelva JWK directo
+middleware nunca verifica una firma real. Fix real: cambiar al endpoint JWK de Google
 (`https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`) e
-`importKey("jwk", ...)` en vez de parsear el X.509. No se hizo en esta sesión — no se pidió, y
-toca un archivo compartido conceptualmente con `yelifin-sistema` que se decidió no tocar todavía.
+`importKey("jwk", ...)`. No se hizo — no se pidió, y toca un archivo compartido conceptualmente con
+`yelifin-sistema`.
+
+Otros bugs de sesiones anteriores (instalación):
+- `local.env` (vacío) casi comiteado por `.gitignore` no cubrir ese nombre exacto — corregido,
+  renombrado a `.env.local`.
+- `[ERR_PNPM_IGNORED_BUILDS]` — se agregó `"pnpm": { "onlyBuiltDependencies": [...] }` a
+  `package.json`.
 
 ---
 
-## 10. Pendiente
+## 9. Fix: usuarios miembros de equipo no mostraban Plan/Estado
+
+`GET/PATCH /api/admin/users` resolvían la org de un usuario con
+`organizations.owner_user_id = u.id` — eso solo matchea a quien **fundó** la organización. Un
+usuario agregado como miembro de equipo (cajero, bodeguero, etc., desde `/settings/members` en
+`yelifin-sistema`) nunca es dueño de nada, así que Plan/Estado le salían siempre vacíos.
+
+Fix: resolver la org por membresía real (`organization_members`), con `LEFT JOIN LATERAL` tomando
+la membresía activa más antigua — mismo criterio que `verifyAuth()` en `yelifin-sistema`
+(`ORDER BY joined_at ASC LIMIT 1`). Aplicado en GET lista, GET detalle y PATCH (editar suscripción
+ahora también funciona viendo a un miembro, no solo al dueño).
+
+Verificado con un caso real: un miembro con rol "Ferias" en una org ajena a su propiedad, que antes
+resolvía `NULL`, ahora resuelve `ACTIVE` / plan real correctamente.
+
+Features agregadas junto con el fix:
+- Columna **Rol** en la tabla de usuarios (Dueño / Miembro · rol).
+- **Equipo de la organización** en el detalle — lista al resto de personas de la misma org
+  (dueño + miembros), clickeable hacia el detalle de cada uno. Solo se muestra si hay más de una
+  persona.
+- **Permisos de su rol** (solo no-dueños) — grilla módulo × (ver/editar/borrar/costos/ganancias),
+  leída de `org_role_permissions`. No se muestra al dueño: tiene bypass total sin consultar esa
+  tabla, la grilla sería engañosa.
+- **Actividad de {nombre}** (solo no-dueños) — ventas/productos/transacciones que ESA persona
+  registró puntualmente (`created_by`, no `org_id`), con sus últimas 5 ventas. Distinto de la
+  tarjeta "Actividad" existente, que sigue siendo el total de la organización.
+
+---
+
+## 10. Módulos nuevos: Pagos, Partners y patrocinio
+
+Ambos módulos le dan UI/API a tablas que ya existían en Neon (ver sección 4) pero nunca tuvieron
+endpoint — diseño documentado en `partner-dashboard-architecture.md` de `yelifin-sistema`.
+
+**Pagos** — historial + registrar pago manual (monto, meses, proveedor, comprobante). Extiende de
+verdad `org_subscriptions.current_period_end` vía `lib/billing.ts`.
+
+**Partners** — CRUD completo (crear con login opcional ya existente, editar, activar/desactivar,
+eliminar si no tiene orgs vinculadas) + gestión de qué organizaciones ve cada uno, con
+`share_financials` en falso por defecto (opt-in explícito, nunca ingresos sin permiso).
+
+**Patrocinio** — el diálogo de "Registrar pago" tiene un selector opcional "Patrocinado por" (solo
+si la org tiene un partner vinculado). El backend valida que el partner esté realmente vinculado a
+esa org antes de aceptar el patrocinio. El detalle de cada partner muestra, por organización, meses
+pagados por el partner y hasta cuándo está cubierto — calculado en vivo desde
+`subscription_payments`, nunca un contador que se pueda desincronizar. Como el patrocinio es por
+pago y no un estado de la org, un pago posterior que la organización pague por su cuenta
+automáticamente NO se le cuenta a ningún partner salvo que un admin lo marque explícitamente en
+ese pago puntual.
+
+---
+
+## 11. Pendiente
 
 - [ ] Deploy: proyecto en Vercel + dominio `admin.hikonta.com` + variables de entorno
-- [ ] Evaluar 2FA o allowlist de IP antes de producción (es el panel con capacidad de resetear
-      cualquier contraseña de la plataforma)
+- [ ] Evaluar 2FA o allowlist de IP antes de producción
 - [ ] Decidir si se apaga `/admin` en `yelifin-sistema` una vez validado esto en producción —
-      **decisión pospuesta a propósito**, `/admin` en `yelifin-sistema` sigue siendo el fallback
-      hasta validar `hikonta-admin` en producción real
-- [ ] Considerar el fix real del bug de cripto en `verifyFirebaseToken()` (ver sección 9) — hoy el
-      middleware no verifica nada de verdad, solo delega a las API routes
-- [ ] Confirmar login real de punta a punta con el tercer fix (sección 9, punto 3) aplicado — los
-      dos primeros fixes no alcanzaron solos, este tercero recién se probó a nivel de código
-      (token real + función copiada), falta la confirmación interactiva en el navegador
+      **decisión pospuesta a propósito**, sigue siendo el fallback
+- [ ] Fix real del bug de cripto en `verifyFirebaseToken()` (sección 8) — el middleware de Edge no
+      verifica nada de verdad, solo delega a las API routes
+- [ ] `git push` — todo sigue comiteado solo localmente desde el commit inicial; confirmar con el
+      usuario antes de subir
+- [ ] Probar en el navegador, con datos reales, los flujos nuevos que solo se verificaron a nivel
+      de query/código en esta sesión: registrar un pago real (incluyendo con patrocinio de
+      partner), crear un partner y vincularle una organización
+- [ ] UI de exportar a Excel / filtros adicionales — no existían tampoco en las páginas originales
+      de `yelifin-sistema`
 
 ---
 
-## 11. Cómo retomar
+## 12. Cómo retomar
 
 ```bash
 cd hikonta-admin
@@ -211,7 +263,8 @@ pnpm install
 pnpm run dev
 ```
 
-`.env.local` ya está lleno y `database/admin/01-admin-infrastructure.sql` ya corrió en Neon — el
-panel debería mostrar datos reales con un login de Firebase normal (la cuenta vinculada en
-`admins`). `NEXT_PUBLIC_BYPASS_AUTH` no está seteado, así que no hay bypass activo por defecto;
-para probar sin loguearse hay que agregarlo a mano a `.env.local` (ver README.md).
+`.env.local` ya está lleno y las migraciones de `database/admin/` y `database/partners/` ya
+corrieron en Neon — el panel debería mostrar datos reales con un login de Firebase normal (la
+cuenta vinculada en `admins`). `NEXT_PUBLIC_BYPASS_AUTH` no está seteado, así que no hay bypass
+activo por defecto; para probar sin loguearse hay que agregarlo a mano a `.env.local` (ver
+`README.md`).
